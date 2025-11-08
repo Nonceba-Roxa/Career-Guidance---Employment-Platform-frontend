@@ -66,6 +66,7 @@ const InstituteDashboard = () => {
   const [tabValue, setTabValue] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [filteredApplications, setFilteredApplications] = useState([]); // ADD THIS LINE
   const [stats, setStats] = useState({
     totalApplications: 0,
     admitted: 0,
@@ -81,7 +82,7 @@ const InstituteDashboard = () => {
   const [viewApplicationOpen, setViewApplicationOpen] = useState(false);
   const [selectedApplication, setSelectedApplication] = useState(null);
   
-  // NEW: Edit states for faculties and courses
+  // Edit states for faculties and courses
   const [editFacultyOpen, setEditFacultyOpen] = useState(false);
   const [editCourseOpen, setEditCourseOpen] = useState(false);
   const [viewCoursesOpen, setViewCoursesOpen] = useState(false);
@@ -114,7 +115,7 @@ const InstituteDashboard = () => {
     establishedYear: ''
   });
 
-  // SIMPLIFIED Firestore data fetching - No complex queries
+  // Firestore data fetching
   const fetchApplicationsData = async () => {
     if (!instituteId) return;
 
@@ -147,6 +148,7 @@ const InstituteDashboard = () => {
 
       console.log('Applications fetched successfully:', applicationsData.length);
       setApplications(applicationsData);
+      setFilteredApplications(applicationsData); // Initialize filtered applications
       calculateStats(applicationsData);
     } catch (error) {
       console.error('Error fetching applications:', error);
@@ -262,7 +264,7 @@ const InstituteDashboard = () => {
     });
   };
 
-  // NEW: Function to view courses for a specific faculty
+  // Function to view courses for a specific faculty
   const viewFacultyCourses = (faculty) => {
     setSelectedFaculty(faculty);
     const facultyCourses = courses.filter(course => course.facultyId === faculty.id);
@@ -270,7 +272,7 @@ const InstituteDashboard = () => {
     setViewCoursesOpen(true);
   };
 
-  // NEW: Function to edit faculty
+  // Function to edit faculty
   const editFaculty = (faculty) => {
     setSelectedFaculty(faculty);
     setFacultyData({
@@ -280,7 +282,7 @@ const InstituteDashboard = () => {
     setEditFacultyOpen(true);
   };
 
-  // NEW: Function to update faculty
+  // Function to update faculty
   const updateFaculty = async () => {
     if (!selectedFaculty || !facultyData.name.trim()) {
       enqueueSnackbar('Faculty name is required', { variant: 'error' });
@@ -312,7 +314,7 @@ const InstituteDashboard = () => {
     }
   };
 
-  // NEW: Function to delete faculty
+  // Function to delete faculty
   const deleteFaculty = async (faculty) => {
     if (!window.confirm(`Are you sure you want to delete "${faculty.name}"? This action cannot be undone.`)) {
       return;
@@ -344,7 +346,7 @@ const InstituteDashboard = () => {
     }
   };
 
-  // NEW: Function to edit course
+  // Function to edit course
   const editCourse = (course) => {
     setSelectedCourse(course);
     setCourseData({
@@ -359,7 +361,7 @@ const InstituteDashboard = () => {
     setEditCourseOpen(true);
   };
 
-  // NEW: Function to update course
+  // Function to update course
   const updateCourse = async () => {
     if (!selectedCourse || !courseData.facultyId || !courseData.name.trim()) {
       enqueueSnackbar('Please select a faculty and enter a course name', { variant: 'error' });
@@ -398,7 +400,7 @@ const InstituteDashboard = () => {
     }
   };
 
-  // NEW: Function to delete course
+  // Function to delete course
   const deleteCourse = async (course) => {
     if (!window.confirm(`Are you sure you want to delete "${course.name}"? This action cannot be undone.`)) {
       return;
@@ -430,10 +432,10 @@ const InstituteDashboard = () => {
     }
   };
 
-  // NEW: Function to view course applications
+  // FIXED: Function to view course applications
   const viewCourseApplications = (course) => {
     setSelectedCourse(course);
-    // Filter applications for this course and set tab to applications
+    // Filter applications for this course
     const courseApplications = applications.filter(app => app.courseId === course.id);
     setFilteredApplications(courseApplications);
     setTabValue(1); // Switch to applications tab
@@ -442,6 +444,17 @@ const InstituteDashboard = () => {
     
     enqueueSnackbar(`Showing ${courseApplications.length} applications for ${course.name}`, { variant: 'info' });
   };
+
+  // Update filtered applications when search term or status filter changes
+  useEffect(() => {
+    const filtered = applications.filter(application => {
+      const matchesSearch = application.studentName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           application.courseName?.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesStatus = statusFilter === 'all' || application.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
+    setFilteredApplications(filtered);
+  }, [applications, searchTerm, statusFilter]);
 
   // Main data loading effect
   useEffect(() => {
@@ -717,14 +730,6 @@ const InstituteDashboard = () => {
       setLoading(false);
     }
   };
-
-  // Filter applications based on search and status
-  const filteredApplications = applications.filter(application => {
-    const matchesSearch = application.studentName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         application.courseName?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || application.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -1389,7 +1394,7 @@ const InstituteDashboard = () => {
         </TabPanel>
       </Paper>
 
-      {/* Enhanced Add Faculty Dialog */}
+      {/* Add Faculty Dialog */}
       <Dialog open={addFacultyOpen} onClose={() => setAddFacultyOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1434,7 +1439,7 @@ const InstituteDashboard = () => {
         </DialogActions>
       </Dialog>
 
-      {/* NEW: Edit Faculty Dialog */}
+      {/* Edit Faculty Dialog */}
       <Dialog open={editFacultyOpen} onClose={() => setEditFacultyOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1477,7 +1482,7 @@ const InstituteDashboard = () => {
         </DialogActions>
       </Dialog>
 
-      {/* NEW: View Faculty Courses Dialog */}
+      {/* View Faculty Courses Dialog */}
       <Dialog open={viewCoursesOpen} onClose={() => setViewCoursesOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'space-between' }}>
@@ -1672,7 +1677,7 @@ const InstituteDashboard = () => {
         </DialogActions>
       </Dialog>
 
-      {/* NEW: Edit Course Dialog */}
+      {/* Edit Course Dialog */}
       <Dialog open={editCourseOpen} onClose={() => setEditCourseOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

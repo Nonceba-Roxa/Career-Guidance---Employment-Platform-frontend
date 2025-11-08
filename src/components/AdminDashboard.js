@@ -30,7 +30,7 @@ import { db, auth, storage } from '../firebase';
 import { 
   collection, onSnapshot, doc, updateDoc, addDoc, 
   query, where, getDoc, deleteDoc, getDocs, orderBy,
-  writeBatch, setDoc
+  writeBatch, setDoc, serverTimestamp
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { createUserWithEmailAndPassword, deleteUser } from 'firebase/auth';
@@ -59,6 +59,7 @@ const AdminDashboard = () => {
   const [faculties, setFaculties] = useState([]);
   const [courses, setCourses] = useState([]);
   const [applications, setApplications] = useState([]);
+  const [admissions, setAdmissions] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [reports, setReports] = useState([]);
   const [stats, setStats] = useState({
@@ -136,6 +137,7 @@ const AdminDashboard = () => {
   const facultiesUnsubscribeRef = useRef(null);
   const coursesUnsubscribeRef = useRef(null);
   const applicationsUnsubscribeRef = useRef(null);
+  const admissionsUnsubscribeRef = useRef(null);
   const jobsUnsubscribeRef = useRef(null);
   const reportsUnsubscribeRef = useRef(null);
 
@@ -178,12 +180,14 @@ const AdminDashboard = () => {
         setUsers(usersData);
       }, (error) => {
         console.error('Error loading users:', error);
+        enqueueSnackbar('Error loading users: ' + error.message, { variant: 'error' });
       });
 
       usersUnsubscribeRef.current = unsubscribe;
       return unsubscribe;
     } catch (error) {
       console.error('Error setting up users listener:', error);
+      enqueueSnackbar('Error setting up users listener: ' + error.message, { variant: 'error' });
     }
   };
 
@@ -211,12 +215,14 @@ const AdminDashboard = () => {
         setInstitutions(institutionsData);
       }, (error) => {
         console.error('Error loading institutions:', error);
+        enqueueSnackbar('Error loading institutions: ' + error.message, { variant: 'error' });
       });
 
       institutionsUnsubscribeRef.current = unsubscribe;
       return unsubscribe;
     } catch (error) {
       console.error('Error setting up institutions listener:', error);
+      enqueueSnackbar('Error setting up institutions listener: ' + error.message, { variant: 'error' });
     }
   };
 
@@ -244,12 +250,14 @@ const AdminDashboard = () => {
         setFaculties(facultiesData);
       }, (error) => {
         console.error('Error loading faculties:', error);
+        enqueueSnackbar('Error loading faculties: ' + error.message, { variant: 'error' });
       });
 
       facultiesUnsubscribeRef.current = unsubscribe;
       return unsubscribe;
     } catch (error) {
       console.error('Error setting up faculties listener:', error);
+      enqueueSnackbar('Error setting up faculties listener: ' + error.message, { variant: 'error' });
     }
   };
 
@@ -277,32 +285,32 @@ const AdminDashboard = () => {
         setCourses(coursesData);
       }, (error) => {
         console.error('Error loading courses:', error);
+        enqueueSnackbar('Error loading courses: ' + error.message, { variant: 'error' });
       });
 
       coursesUnsubscribeRef.current = unsubscribe;
       return unsubscribe;
     } catch (error) {
       console.error('Error setting up courses listener:', error);
+      enqueueSnackbar('Error setting up courses listener: ' + error.message, { variant: 'error' });
     }
   };
 
-  // Load applications with real-time listener
-  const loadApplications = () => {
+  // Load admissions with real-time listener - FIXED for admission rate calculation
+  const loadAdmissions = () => {
     if (!user) return;
     
     try {
-      console.log('Setting up applications listener for admin');
+      console.log('Setting up admissions listener for admin');
       
       // Clean up previous listener
-      if (applicationsUnsubscribeRef.current) {
-        console.log('Cleaning up previous applications listener');
-        applicationsUnsubscribeRef.current();
+      if (admissionsUnsubscribeRef.current) {
+        console.log('Cleaning up previous admissions listener');
+        admissionsUnsubscribeRef.current();
       }
       
-      const admissionsQuery = query(collection(db, 'admissions'), orderBy('appliedAt', 'desc'));
-      const jobAppsQuery = query(collection(db, 'jobApplications'), orderBy('appliedAt', 'desc'));
-      
-      const unsubscribeAdmissions = onSnapshot(admissionsQuery, (snapshot) => {
+      const q = query(collection(db, 'admissions'), orderBy('appliedAt', 'desc'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
         const admissionsData = snapshot.docs.map(doc => ({
           id: doc.id,
           type: 'admission',
@@ -310,38 +318,56 @@ const AdminDashboard = () => {
           appliedAt: doc.data().appliedAt?.toDate?.() || new Date(doc.data().appliedAt)
         }));
         
-        setApplications(prev => {
-          const jobApps = prev.filter(app => app.type === 'job');
-          return [...admissionsData, ...jobApps];
-        });
+        console.log('Admissions loaded:', admissionsData.length);
+        console.log('Admission statuses:', admissionsData.map(adm => ({ id: adm.id, status: adm.status })));
+        setAdmissions(admissionsData);
+      }, (error) => {
+        console.error('Error loading admissions:', error);
+        enqueueSnackbar('Error loading admissions: ' + error.message, { variant: 'error' });
       });
 
-      const unsubscribeJobApps = onSnapshot(jobAppsQuery, (snapshot) => {
-        const jobAppsData = snapshot.docs.map(doc => ({
+      admissionsUnsubscribeRef.current = unsubscribe;
+      return unsubscribe;
+    } catch (error) {
+      console.error('Error setting up admissions listener:', error);
+      enqueueSnackbar('Error setting up admissions listener: ' + error.message, { variant: 'error' });
+    }
+  };
+
+  // Load job applications with real-time listener
+  const loadApplications = () => {
+    if (!user) return;
+    
+    try {
+      console.log('Setting up job applications listener');
+      
+      // Clean up previous listener
+      if (applicationsUnsubscribeRef.current) {
+        console.log('Cleaning up previous applications listener');
+        applicationsUnsubscribeRef.current();
+      }
+      
+      const q = query(collection(db, 'jobApplications'), orderBy('appliedAt', 'desc'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const applicationsData = snapshot.docs.map(doc => ({
           id: doc.id,
           type: 'job',
           ...doc.data(),
           appliedAt: doc.data().appliedAt?.toDate?.() || new Date(doc.data().appliedAt)
         }));
         
-        setApplications(prev => {
-          const admissions = prev.filter(app => app.type === 'admission');
-          return [...admissions, ...jobAppsData];
-        });
+        console.log('Job applications loaded:', applicationsData.length);
+        setApplications(applicationsData);
+      }, (error) => {
+        console.error('Error loading job applications:', error);
+        enqueueSnackbar('Error loading job applications: ' + error.message, { variant: 'error' });
       });
 
-      applicationsUnsubscribeRef.current = () => {
-        unsubscribeAdmissions();
-        unsubscribeJobApps();
-      };
-      
-      return () => {
-        unsubscribeAdmissions();
-        unsubscribeJobApps();
-      };
-      
+      applicationsUnsubscribeRef.current = unsubscribe;
+      return unsubscribe;
     } catch (error) {
       console.error('Error setting up applications listener:', error);
+      enqueueSnackbar('Error setting up applications listener: ' + error.message, { variant: 'error' });
     }
   };
 
@@ -370,12 +396,14 @@ const AdminDashboard = () => {
         setJobs(jobsData);
       }, (error) => {
         console.error('Error loading jobs:', error);
+        enqueueSnackbar('Error loading jobs: ' + error.message, { variant: 'error' });
       });
 
       jobsUnsubscribeRef.current = unsubscribe;
       return unsubscribe;
     } catch (error) {
       console.error('Error setting up jobs listener:', error);
+      enqueueSnackbar('Error setting up jobs listener: ' + error.message, { variant: 'error' });
     }
   };
 
@@ -404,25 +432,39 @@ const AdminDashboard = () => {
         setReports(reportsData);
       }, (error) => {
         console.error('Error loading reports:', error);
+        enqueueSnackbar('Error loading reports: ' + error.message, { variant: 'error' });
       });
 
       reportsUnsubscribeRef.current = unsubscribe;
       return unsubscribe;
     } catch (error) {
       console.error('Error setting up reports listener:', error);
+      enqueueSnackbar('Error setting up reports listener: ' + error.message, { variant: 'error' });
     }
   };
 
-  // Calculate statistics - FIXED to update when data changes
+  // Calculate statistics - FIXED admission rate calculation
   const calculateStatistics = () => {
     console.log('Calculating statistics with current data:', {
       users: users.length,
+      admissions: admissions.length,
       applications: applications.length,
       jobs: jobs.length
     });
 
-    const admissions = applications.filter(app => app.type === 'admission');
-    const jobApplications = applications.filter(app => app.type === 'job');
+    // Calculate admission rate from admissions collection
+    const totalAdmissions = admissions.length;
+    const admittedAdmissions = admissions.filter(adm => 
+      adm.status === 'admitted' || adm.status === 'approved'
+    ).length;
+    
+    console.log('Total admissions:', totalAdmissions);
+    console.log('Admitted admissions:', admittedAdmissions);
+    
+    const admissionRate = totalAdmissions > 0 ? 
+      ((admittedAdmissions / totalAdmissions) * 100).toFixed(1) : 0;
+
+    console.log('Calculated admission rate:', admissionRate);
 
     const userStats = {
       totalUsers: users.length,
@@ -432,10 +474,9 @@ const AdminDashboard = () => {
       pendingCompanies: users.filter(u => u.role === 'company' && u.status === 'pending').length,
       activeUsers: users.filter(u => u.status === 'active' || !u.status).length,
       suspendedUsers: users.filter(u => u.status === 'suspended').length,
-      totalApplications: admissions.length + jobApplications.length,
+      totalApplications: admissions.length + applications.length,
       totalJobs: jobs.length,
-      admissionRate: admissions.length > 0 ? 
-        (admissions.filter(app => app.status === 'admitted').length / admissions.length * 100).toFixed(1) : 0
+      admissionRate: parseFloat(admissionRate) // Ensure it's a number
     };
     
     console.log('New statistics calculated:', userStats);
@@ -453,6 +494,7 @@ const AdminDashboard = () => {
     loadInstitutions();
     loadFaculties();
     loadCourses();
+    loadAdmissions(); // Load admissions separately for admission rate
     loadApplications();
     loadJobs();
     loadReports();
@@ -462,10 +504,9 @@ const AdminDashboard = () => {
 
   // Effect to calculate statistics when data changes
   useEffect(() => {
-    if (users.length > 0 || applications.length > 0 || jobs.length > 0) {
-      calculateStatistics();
-    }
-  }, [users, applications, jobs]);
+    console.log('Data changed, recalculating stats...');
+    calculateStatistics();
+  }, [users, admissions, applications, jobs]);
 
   useEffect(() => {
     const checkAdminAccess = async () => {
@@ -484,16 +525,17 @@ const AdminDashboard = () => {
       let userProfile = profile;
       let userRole = profile?.role;
 
-      if (user && !profile) {
-        console.log('Profile missing, loading manually...');
+      // If profile is not loaded, try to load it manually
+      if (user && (!profile || !profile.role)) {
+        console.log('Profile missing or incomplete, loading manually...');
         try {
           userProfile = await loadUserProfile(user.uid);
           if (userProfile) {
             userRole = userProfile.role;
-            console.log('Manually loaded profile:', userProfile);
+            console.log('Manually loaded profile role:', userRole);
           } else {
             setProfileError(true);
-            enqueueSnackbar('Error loading user profile', { variant: 'error' });
+            enqueueSnackbar('Error loading user profile - profile not found', { variant: 'error' });
             return;
           }
         } catch (error) {
@@ -511,6 +553,19 @@ const AdminDashboard = () => {
           autoHideDuration: 5000 
         });
         setAccessChecked(true);
+        
+        // Redirect based on role
+        setTimeout(() => {
+          if (userRole === 'institute') {
+            navigate('/institute-dashboard');
+          } else if (userRole === 'student') {
+            navigate('/student-dashboard');
+          } else if (userRole === 'company') {
+            navigate('/company-dashboard');
+          } else {
+            navigate('/dashboard');
+          }
+        }, 2000);
         return;
       }
 
@@ -535,6 +590,9 @@ const AdminDashboard = () => {
       }
       if (coursesUnsubscribeRef.current) {
         coursesUnsubscribeRef.current();
+      }
+      if (admissionsUnsubscribeRef.current) {
+        admissionsUnsubscribeRef.current();
       }
       if (applicationsUnsubscribeRef.current) {
         applicationsUnsubscribeRef.current();
@@ -586,7 +644,7 @@ const AdminDashboard = () => {
     setViewInstitutionDialogOpen(true);
   };
 
-  // Add Institution - FIXED permission issues
+  // Add Institution - FIXED to handle profile creation properly
   const addInstitution = async () => {
     if (!institutionData.name.trim() || !institutionData.email.trim() || !institutionData.password.trim()) {
       enqueueSnackbar('Institution name, email and password are required', { variant: 'error' });
@@ -602,7 +660,7 @@ const AdminDashboard = () => {
     enqueueSnackbar('Adding institution... Please wait.', { variant: 'info' });
 
     try {
-      // Check if email already exists
+      // Check if email already exists in users collection
       const emailQuery = query(collection(db, 'users'), where('email', '==', institutionData.email));
       const emailSnapshot = await getDocs(emailQuery);
       
@@ -619,36 +677,41 @@ const AdminDashboard = () => {
         institutionData.password
       );
 
-      // Create the institution document in Firestore
-      const userDocRef = await addDoc(collection(db, 'users'), {
+      // Create the user document in Firestore with proper structure
+      const userData = {
+        uid: institutionUser.uid,
         name: institutionData.name,
         email: institutionData.email,
         role: 'institute',
         status: 'active',
-        location: institutionData.location,
-        phone: institutionData.phone,
-        website: institutionData.website,
-        description: institutionData.description,
-        establishedYear: institutionData.establishedYear,
-        createdAt: new Date(),
-        uid: institutionUser.uid
-      });
+        location: institutionData.location || '',
+        phone: institutionData.phone || '',
+        website: institutionData.website || '',
+        description: institutionData.description || '',
+        establishedYear: institutionData.establishedYear || '',
+        createdAt: serverTimestamp(),
+        lastLogin: serverTimestamp()
+      };
+
+      await setDoc(doc(db, 'users', institutionUser.uid), userData);
 
       // Also add to institutions collection
-      await addDoc(collection(db, 'institutions'), {
+      const institutionDoc = {
         name: institutionData.name,
         email: institutionData.email,
-        location: institutionData.location,
-        phone: institutionData.phone,
-        website: institutionData.website,
-        description: institutionData.description,
-        establishedYear: institutionData.establishedYear,
-        createdAt: new Date(),
+        location: institutionData.location || '',
+        phone: institutionData.phone || '',
+        website: institutionData.website || '',
+        description: institutionData.description || '',
+        establishedYear: institutionData.establishedYear || '',
+        createdAt: serverTimestamp(),
         status: 'active',
-        userId: userDocRef.id
-      });
+        userId: institutionUser.uid
+      };
 
-      enqueueSnackbar('Institution added successfully', { variant: 'success' });
+      await addDoc(collection(db, 'institutions'), institutionDoc);
+
+      enqueueSnackbar('Institution added successfully! They can now log in with the provided credentials.', { variant: 'success' });
       setAddInstitutionOpen(false);
       setInstitutionData({ 
         name: '', 
@@ -668,6 +731,8 @@ const AdminDashboard = () => {
         errorMessage = 'Email already exists in the system';
       } else if (error.code === 'permission-denied') {
         errorMessage = 'Permission denied. Please check Firebase rules.';
+      } else if (error.code === 'auth/weak-password') {
+        errorMessage = 'Password is too weak';
       }
       enqueueSnackbar(errorMessage, { variant: 'error' });
     } finally {
@@ -687,7 +752,7 @@ const AdminDashboard = () => {
         name: facultyData.name,
         description: facultyData.description,
         instituteId: facultyData.instituteId,
-        createdAt: new Date(),
+        createdAt: serverTimestamp(),
         status: 'active'
       });
 
@@ -724,7 +789,7 @@ const AdminDashboard = () => {
         fees: courseData.fees,
         requirements: courseData.requirements,
         seats: parseInt(courseData.seats) || 0,
-        createdAt: new Date(),
+        createdAt: serverTimestamp(),
         status: 'active'
       });
 
@@ -746,42 +811,58 @@ const AdminDashboard = () => {
     }
   };
 
-  // Publish Admissions - FIXED document creation issue
+  // Publish Admissions - FIXED with proper collection reference
   const publishAdmissions = async () => {
+    if (!admissionSettings.startDate || !admissionSettings.endDate) {
+      enqueueSnackbar('Start date and end date are required', { variant: 'error' });
+      return;
+    }
+
     try {
-      // Create or update admission settings
-      const admissionSettingsRef = doc(db, 'system', 'admissionSettings');
+      // Create or update admission settings in admissionSettings collection
+      const admissionSettingsRef = doc(db, 'admissionSettings', 'current');
       
-      // Use setDoc with merge: true to create if doesn't exist or update if exists
-      await setDoc(admissionSettingsRef, {
+      const settingsData = {
         ...admissionSettings,
         isPublished: true,
-        publishedAt: new Date(),
-        publishedBy: user.uid
-      }, { merge: true });
+        publishedAt: serverTimestamp(),
+        publishedBy: user.uid,
+        publishedByName: profile?.name || 'Administrator'
+      };
 
-      // Notify all students
+      await setDoc(admissionSettingsRef, settingsData);
+
+      // Notify all students about published admissions
       const students = users.filter(u => u.role === 'student');
-      const notificationPromises = students.map(student => 
-        addDoc(collection(db, 'notifications'), {
-          userId: student.id,
-          title: '🎓 Admissions Published!',
-          message: `Admissions for ${admissionSettings.academicYear} have been published. Check your dashboard for updates.`,
-          type: 'admission',
-          priority: 'high',
-          read: false,
-          createdAt: new Date()
-        })
-      );
+      
+      if (students.length > 0) {
+        const notificationPromises = students.map(student => 
+          addDoc(collection(db, 'notifications'), {
+            userId: student.id,
+            title: '🎓 Admissions Published!',
+            message: admissionSettings.announcement || `Admissions for ${admissionSettings.academicYear} have been published. Check your dashboard for updates.`,
+            type: 'admission',
+            priority: 'high',
+            read: false,
+            createdAt: serverTimestamp()
+          })
+        );
 
-      await Promise.all(notificationPromises);
+        await Promise.all(notificationPromises);
+      }
 
-      enqueueSnackbar('Admissions published successfully! All students have been notified.', { variant: 'success' });
+      enqueueSnackbar(`Admissions published successfully! ${students.length} students have been notified.`, { variant: 'success' });
       setPublishAdmissionsOpen(false);
       
     } catch (error) {
       console.error('Publish admissions error:', error);
-      enqueueSnackbar('Failed to publish admissions: ' + error.message, { variant: 'error' });
+      let errorMessage = 'Failed to publish admissions: ' + error.message;
+      
+      if (error.code === 'permission-denied') {
+        errorMessage = 'Permission denied. Please check if you have write access to admissionSettings collection.';
+      }
+      
+      enqueueSnackbar(errorMessage, { variant: 'error' });
     }
   };
 
@@ -813,7 +894,11 @@ const AdminDashboard = () => {
           newStatus = 'pending';
       }
       
-      await updateDoc(userRef, { status: newStatus });
+      await updateDoc(userRef, { 
+        status: newStatus,
+        updatedAt: serverTimestamp()
+      });
+      
       enqueueSnackbar(`User ${actionMessage} successfully`, { variant: 'success' });
       handleUserMenuClose();
       
@@ -851,15 +936,20 @@ const AdminDashboard = () => {
     try {
       const batch = writeBatch(db);
       
-      // Find the institution user
-      const institutionUser = users.find(u => u.role === 'institute' && institutions.find(inst => inst.id === institutionId)?.email === u.email);
+      // Find the institution
+      const institution = institutions.find(inst => inst.id === institutionId);
+      
+      if (!institution) {
+        enqueueSnackbar('Institution not found', { variant: 'error' });
+        return;
+      }
       
       // Delete institution from institutions collection
       batch.delete(doc(db, 'institutions', institutionId));
       
-      // Delete associated user account
-      if (institutionUser) {
-        batch.delete(doc(db, 'users', institutionUser.id));
+      // Delete associated user account if exists
+      if (institution.userId) {
+        batch.delete(doc(db, 'users', institution.userId));
       }
       
       // Delete associated faculties
@@ -880,8 +970,6 @@ const AdminDashboard = () => {
       await batch.commit();
       enqueueSnackbar('Institution and all associated data deleted successfully', { variant: 'success' });
       
-      // The real-time listeners will automatically update the UI
-      
     } catch (error) {
       console.error('Delete institution error:', error);
       enqueueSnackbar('Failed to delete institution: ' + error.message, { variant: 'error' });
@@ -892,7 +980,7 @@ const AdminDashboard = () => {
   const generateSystemReport = async () => {
     try {
       const reportData = {
-        generatedAt: new Date(),
+        generatedAt: serverTimestamp(),
         generatedBy: user.uid,
         generatedByName: profile?.name || 'Administrator',
         statistics: stats,
@@ -903,9 +991,9 @@ const AdminDashboard = () => {
           admins: users.filter(u => u.role === 'admin').length
         },
         applicationsByStatus: {
-          pending: applications.filter(app => app.status === 'pending').length,
-          admitted: applications.filter(app => app.status === 'admitted').length,
-          rejected: applications.filter(app => app.status === 'rejected').length
+          pending: admissions.filter(app => app.status === 'pending').length,
+          admitted: admissions.filter(app => app.status === 'admitted' || app.status === 'approved').length,
+          rejected: admissions.filter(app => app.status === 'rejected').length
         },
         topInstitutions: institutions.slice(0, 5).map(inst => ({
           name: inst.name,
@@ -913,7 +1001,7 @@ const AdminDashboard = () => {
             const faculty = faculties.find(f => f.id === c.facultyId);
             return faculty?.instituteId === inst.id;
           }).length,
-          applications: applications.filter(app => app.instituteId === inst.id).length
+          applications: admissions.filter(app => app.instituteId === inst.id).length
         }))
       };
 
@@ -926,10 +1014,162 @@ const AdminDashboard = () => {
     }
   };
 
+  // View Report Details - NEW FUNCTION
+  const handleViewReportDetails = (report) => {
+    setSelectedInstitution(report); // Reusing selectedInstitution state for report details
+    setViewReportsOpen(true);
+  };
+
+  // Export to CSV - SIMPLE CSV EXPORT WITHOUT EXTERNAL LIBRARIES
+  const exportToCSV = (data, filename) => {
+    if (!data || data.length === 0) {
+      enqueueSnackbar('No data to export', { variant: 'warning' });
+      return;
+    }
+
+    try {
+      // Get headers from the first object
+      const headers = Object.keys(data[0]);
+      
+      // Create CSV content
+      let csvContent = headers.join(',') + '\n';
+      
+      // Add data rows
+      data.forEach(row => {
+        const values = headers.map(header => {
+          const value = row[header];
+          // Handle different data types and escape commas
+          if (value === null || value === undefined) return '';
+          if (typeof value === 'object') return JSON.stringify(value).replace(/,/g, ';');
+          return `"${String(value).replace(/"/g, '""')}"`;
+        });
+        csvContent += values.join(',') + '\n';
+      });
+
+      // Create and trigger download
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      
+      link.setAttribute('href', url);
+      link.setAttribute('download', filename);
+      link.style.visibility = 'hidden';
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      enqueueSnackbar(`${filename} downloaded successfully`, { variant: 'success' });
+    } catch (error) {
+      console.error('CSV export error:', error);
+      enqueueSnackbar('Failed to export CSV: ' + error.message, { variant: 'error' });
+    }
+  };
+
+  // Export Report Data - SIMPLE TEXT FORMAT
+  const handleExportReport = (report) => {
+    try {
+      const reportData = `
+SYSTEM REPORT
+Generated: ${formatDate(report.generatedAt)}
+Generated by: ${report.generatedByName || 'Administrator'}
+
+STATISTICS:
+Total Users: ${report.statistics?.totalUsers || 0}
+Students: ${report.statistics?.students || 0}
+Institutions: ${report.statistics?.institutes || 0}
+Companies: ${report.statistics?.companies || 0}
+Total Applications: ${report.statistics?.totalApplications || 0}
+Admission Rate: ${report.statistics?.admissionRate || 0}%
+Active Jobs: ${report.statistics?.totalJobs || 0}
+
+USERS BY ROLE:
+Students: ${report.usersByRole?.students || 0}
+Institutions: ${report.usersByRole?.institutes || 0}
+Companies: ${report.usersByRole?.companies || 0}
+Admins: ${report.usersByRole?.admins || 0}
+
+APPLICATIONS BY STATUS:
+Pending: ${report.applicationsByStatus?.pending || 0}
+Admitted: ${report.applicationsByStatus?.admitted || 0}
+Rejected: ${report.applicationsByStatus?.rejected || 0}
+
+TOP INSTITUTIONS:
+${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, ${inst.applications} applications`).join('\n') || 'No data'}
+      `.trim();
+
+      // Create and download text file
+      const blob = new Blob([reportData], { type: 'text/plain' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      
+      const fileName = `system-report-${new Date().toISOString().split('T')[0]}.txt`;
+      link.setAttribute('href', url);
+      link.setAttribute('download', fileName);
+      link.style.visibility = 'hidden';
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      enqueueSnackbar('Report exported successfully', { variant: 'success' });
+      
+    } catch (error) {
+      console.error('Report export error:', error);
+      enqueueSnackbar('Failed to export report: ' + error.message, { variant: 'error' });
+    }
+  };
+
+  // Quick Export Functions for Different Data Types
+  const exportUsersCSV = () => {
+    const usersData = users.map(user => ({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+      phone: user.phone || '',
+      location: user.location || '',
+      createdAt: formatDate(user.createdAt),
+      lastLogin: formatDate(user.lastLogin)
+    }));
+    exportToCSV(usersData, `users-export-${new Date().toISOString().split('T')[0]}.csv`);
+  };
+
+  const exportInstitutionsCSV = () => {
+    const institutionsData = institutions.map(inst => ({
+      id: inst.id,
+      name: inst.name,
+      email: inst.email,
+      location: inst.location || '',
+      phone: inst.phone || '',
+      website: inst.website || '',
+      establishedYear: inst.establishedYear || '',
+      status: inst.status,
+      createdAt: formatDate(inst.createdAt)
+    }));
+    exportToCSV(institutionsData, `institutions-export-${new Date().toISOString().split('T')[0]}.csv`);
+  };
+
+  const exportAdmissionsCSV = () => {
+    const admissionsData = admissions.map(adm => ({
+      id: adm.id,
+      studentName: adm.studentName || 'N/A',
+      studentEmail: adm.studentEmail || 'N/A',
+      courseName: adm.courseName || 'N/A',
+      instituteName: adm.instituteName || 'N/A',
+      status: adm.status,
+      appliedAt: formatDate(adm.appliedAt),
+      decisionDate: formatDate(adm.decisionDate)
+    }));
+    exportToCSV(admissionsData, `admissions-export-${new Date().toISOString().split('T')[0]}.csv`);
+  };
+
   const getStatusColor = (status) => {
     switch (status) {
       case 'active':
-      case 'approved': return 'success';
+      case 'approved': 
+      case 'admitted': return 'success';
       case 'pending': return 'warning';
       case 'suspended':
       case 'rejected': return 'error';
@@ -1247,6 +1487,14 @@ const AdminDashboard = () => {
           >
             Generate Report
           </Button>
+          <Button 
+            variant="contained" 
+            startIcon={<Download />}
+            onClick={exportUsersCSV}
+            sx={{ background: 'rgba(255,255,255,0.2)', '&:hover': { background: 'rgba(255,255,255,0.3)' } }}
+          >
+            Export Users
+          </Button>
         </Box>
       </Paper>
 
@@ -1283,7 +1531,7 @@ const AdminDashboard = () => {
                 <Grid item xs={12} sm={6}>
                   <Box sx={{ p: 2, bgcolor: 'primary.50', borderRadius: 2 }}>
                     <Typography variant="h4" color="primary" gutterBottom>
-                      {applications.length}
+                      {admissions.length + applications.length}
                     </Typography>
                     <Typography variant="body1">Total Applications</Typography>
                     <Typography variant="body2" color="text.secondary">
@@ -1333,22 +1581,22 @@ const AdminDashboard = () => {
                 <Timeline /> Recent Activity
               </Typography>
               <List>
-                {[...applications, ...jobs]
+                {[...admissions, ...applications, ...jobs]
                   .sort((a, b) => new Date(b.appliedAt || b.postedAt) - new Date(a.appliedAt || a.postedAt))
                   .slice(0, 5)
                   .map((item, index) => (
                     <ListItem key={index} divider={index < 4}>
                       <ListItemAvatar>
                         <Avatar>
-                          {item.jobId ? <Work /> : <School />}
+                          {item.type === 'job' ? <Work /> : <School />}
                         </Avatar>
                       </ListItemAvatar>
                       <Box>
                         <Typography variant="body1" component="div">
-                          {item.jobTitle || item.courseName}
+                          {item.jobTitle || item.courseName || 'Application'}
                         </Typography>
                         <Typography variant="body2" color="text.secondary" component="div">
-                          {item.companyName || item.instituteName}
+                          {item.companyName || item.instituteName || 'Unknown'}
                         </Typography>
                         <Typography variant="caption" color="text.secondary" component="div">
                           {new Date(item.appliedAt || item.postedAt).toLocaleDateString()}
@@ -1391,6 +1639,18 @@ const AdminDashboard = () => {
                 <ListItem button onClick={generateSystemReport}>
                   <ListItemIcon><Assessment color="primary" /></ListItemIcon>
                   <ListItemText primary="Generate Report" />
+                </ListItem>
+                <ListItem button onClick={exportUsersCSV}>
+                  <ListItemIcon><Download color="primary" /></ListItemIcon>
+                  <ListItemText primary="Export Users CSV" />
+                </ListItem>
+                <ListItem button onClick={exportInstitutionsCSV}>
+                  <ListItemIcon><Download color="primary" /></ListItemIcon>
+                  <ListItemText primary="Export Institutions CSV" />
+                </ListItem>
+                <ListItem button onClick={exportAdmissionsCSV}>
+                  <ListItemIcon><Download color="primary" /></ListItemIcon>
+                  <ListItemText primary="Export Admissions CSV" />
                 </ListItem>
               </List>
             </Card>
@@ -1439,9 +1699,18 @@ const AdminDashboard = () => {
       <TabPanel value={tabValue} index={1}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
           <Typography variant="h5">Company Accounts</Typography>
-          <Typography variant="body2" color="textSecondary">
-            Total: {companiesList.length} companies • {pendingCompanies.length} pending approval
-          </Typography>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button 
+              variant="outlined" 
+              startIcon={<Download />}
+              onClick={exportUsersCSV}
+            >
+              Export CSV
+            </Button>
+            <Typography variant="body2" color="textSecondary" sx={{ ml: 2 }}>
+              Total: {companiesList.length} companies • {pendingCompanies.length} pending approval
+            </Typography>
+          </Box>
         </Box>
         
         <Table>
@@ -1507,13 +1776,22 @@ const AdminDashboard = () => {
       <TabPanel value={tabValue} index={2}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
           <Typography variant="h5">Institution Accounts</Typography>
-          <Button 
-            variant="contained" 
-            startIcon={<Add />}
-            onClick={() => setAddInstitutionOpen(true)}
-          >
-            Add Institution
-          </Button>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button 
+              variant="outlined" 
+              startIcon={<Download />}
+              onClick={exportInstitutionsCSV}
+            >
+              Export CSV
+            </Button>
+            <Button 
+              variant="contained" 
+              startIcon={<Add />}
+              onClick={() => setAddInstitutionOpen(true)}
+            >
+              Add Institution
+            </Button>
+          </Box>
         </Box>
         
         <Grid container spacing={3}>
@@ -1559,7 +1837,7 @@ const AdminDashboard = () => {
                   </Grid>
                   <Grid item xs={6}>
                     <Typography variant="body2">
-                      <strong>Applications:</strong> {applications.filter(app => app.instituteId === institution.id).length}
+                      <strong>Applications:</strong> {admissions.filter(app => app.instituteId === institution.id).length}
                     </Typography>
                   </Grid>
                 </Grid>
@@ -1593,9 +1871,18 @@ const AdminDashboard = () => {
       <TabPanel value={tabValue} index={3}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
           <Typography variant="h5">Student Accounts</Typography>
-          <Typography variant="body2" color="textSecondary">
-            Total: {studentsList.length} students
-          </Typography>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button 
+              variant="outlined" 
+              startIcon={<Download />}
+              onClick={exportUsersCSV}
+            >
+              Export CSV
+            </Button>
+            <Typography variant="body2" color="textSecondary">
+              Total: {studentsList.length} students
+            </Typography>
+          </Box>
         </Box>
         
         <Table>
@@ -1637,7 +1924,7 @@ const AdminDashboard = () => {
                 </TableCell>
                 <TableCell>
                   <Typography variant="body2">
-                    {applications.filter(app => app.userId === student.id).length} applied
+                    {admissions.filter(app => app.userId === student.id).length} applied
                   </Typography>
                 </TableCell>
                 <TableCell>
@@ -1786,7 +2073,7 @@ const AdminDashboard = () => {
         )}
       </TabPanel>
 
-      {/* System Reports Tab - FIXED to show generated reports */}
+      {/* System Reports Tab - FIXED with working buttons */}
       <TabPanel value={tabValue} index={6}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
           <Typography variant="h5">System Reports & Analytics</Typography>
@@ -1857,6 +2144,7 @@ const AdminDashboard = () => {
                       size="small" 
                       variant="outlined" 
                       startIcon={<Visibility />}
+                      onClick={() => handleViewReportDetails(report)}
                     >
                       View Details
                     </Button>
@@ -1864,8 +2152,9 @@ const AdminDashboard = () => {
                       size="small" 
                       variant="outlined" 
                       startIcon={<Download />}
+                      onClick={() => handleExportReport(report)}
                     >
-                      Export PDF
+                      Export Report
                     </Button>
                   </Box>
                 </Card>
@@ -2097,7 +2386,7 @@ const AdminDashboard = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Publish Admissions Dialog */}
+      {/* Publish Admissions Dialog - IMPROVED with better instructions */}
       <Dialog open={publishAdmissionsOpen} onClose={() => setPublishAdmissionsOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -2107,8 +2396,10 @@ const AdminDashboard = () => {
         </DialogTitle>
         <DialogContent>
           <Box sx={{ mt: 2 }}>
-            <Alert severity="warning" sx={{ mb: 3 }}>
-              This will publish admission results and notify all students. This action cannot be undone.
+            <Alert severity="info" sx={{ mb: 3 }}>
+              <Typography variant="body2">
+                This will publish admission settings and notify all students. Make sure all admission decisions are finalized before publishing.
+              </Typography>
             </Alert>
             
             <TextField
@@ -2118,24 +2409,27 @@ const AdminDashboard = () => {
               onChange={e => setAdmissionSettings({...admissionSettings, academicYear: e.target.value})}
               fullWidth
               margin="normal"
+              helperText="The academic year for these admissions"
             />
             <TextField
-              label="Start Date"
+              label="Application Start Date"
               type="date"
               value={admissionSettings.startDate}
               onChange={e => setAdmissionSettings({...admissionSettings, startDate: e.target.value})}
               fullWidth
               margin="normal"
               InputLabelProps={{ shrink: true }}
+              helperText="When applications open"
             />
             <TextField
-              label="End Date"
+              label="Application End Date"
               type="date"
               value={admissionSettings.endDate}
               onChange={e => setAdmissionSettings({...admissionSettings, endDate: e.target.value})}
               fullWidth
               margin="normal"
               InputLabelProps={{ shrink: true }}
+              helperText="When applications close"
             />
             <TextField
               label="Announcement Message"
@@ -2145,7 +2439,8 @@ const AdminDashboard = () => {
               onChange={e => setAdmissionSettings({...admissionSettings, announcement: e.target.value})}
               fullWidth
               margin="normal"
-              placeholder="Important information about the admissions process..."
+              placeholder="Important information about the admissions process, deadlines, requirements..."
+              helperText="This message will be sent to all students"
             />
           </Box>
         </DialogContent>
@@ -2155,10 +2450,78 @@ const AdminDashboard = () => {
             onClick={publishAdmissions}
             variant="contained"
             color="primary"
+            disabled={!admissionSettings.startDate || !admissionSettings.endDate}
             startIcon={<Publish />}
           >
             Publish Admissions
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* View Reports Dialog - NEW */}
+      <Dialog open={viewReportsOpen} onClose={() => setViewReportsOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>
+          <Typography variant="h6">Report Details</Typography>
+        </DialogTitle>
+        <DialogContent>
+          {selectedInstitution && (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="h6" gutterBottom>
+                System Report - {formatDate(selectedInstitution.generatedAt)}
+              </Typography>
+              <Typography variant="body2" color="textSecondary" gutterBottom>
+                Generated by: {selectedInstitution.generatedByName || 'Administrator'}
+              </Typography>
+              
+              <Divider sx={{ my: 2 }} />
+              
+              <Typography variant="h6" gutterBottom>Statistics</Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={6}>
+                  <Typography variant="body2"><strong>Total Users:</strong> {selectedInstitution.statistics?.totalUsers || 0}</Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="body2"><strong>Students:</strong> {selectedInstitution.statistics?.students || 0}</Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="body2"><strong>Institutions:</strong> {selectedInstitution.statistics?.institutes || 0}</Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="body2"><strong>Companies:</strong> {selectedInstitution.statistics?.companies || 0}</Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="body2"><strong>Total Applications:</strong> {selectedInstitution.statistics?.totalApplications || 0}</Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="body2"><strong>Admission Rate:</strong> {selectedInstitution.statistics?.admissionRate || 0}%</Typography>
+                </Grid>
+              </Grid>
+              
+              {selectedInstitution.usersByRole && (
+                <>
+                  <Divider sx={{ my: 2 }} />
+                  <Typography variant="h6" gutterBottom>Users by Role</Typography>
+                  <Grid container spacing={2}>
+                    <Grid item xs={6}>
+                      <Typography variant="body2"><strong>Students:</strong> {selectedInstitution.usersByRole.students || 0}</Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="body2"><strong>Institutions:</strong> {selectedInstitution.usersByRole.institutes || 0}</Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="body2"><strong>Companies:</strong> {selectedInstitution.usersByRole.companies || 0}</Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="body2"><strong>Admins:</strong> {selectedInstitution.usersByRole.admins || 0}</Typography>
+                    </Grid>
+                  </Grid>
+                </>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setViewReportsOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
 
@@ -2406,7 +2769,7 @@ const AdminDashboard = () => {
                         }).length}
                       </Typography>
                       <Typography variant="body2">
-                        <strong>Applications:</strong> {applications.filter(app => app.instituteId === selectedInstitution.id).length}
+                        <strong>Applications:</strong> {admissions.filter(app => app.instituteId === selectedInstitution.id).length}
                       </Typography>
                       <Typography variant="body2">
                         <strong>Joined:</strong> {formatDate(selectedInstitution.createdAt)}
