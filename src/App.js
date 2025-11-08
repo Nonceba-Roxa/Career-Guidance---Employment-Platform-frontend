@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import RoleSelection from './components/RoleSelection';
 import Login from './components/Login';
@@ -12,6 +12,7 @@ import NavigationBar from './components/NavigationBar';
 import Footer from './components/Footer';
 import './App.css';
 
+// Layout Component
 const Layout = ({ children }) => {
   return (
     <div className="app-container">
@@ -22,7 +23,7 @@ const Layout = ({ children }) => {
   );
 };
 
-// Enhanced Protected Route Component
+// Protected Route Component
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, profile, loading } = useAuth();
 
@@ -35,9 +36,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
     );
   }
 
-  if (!user) {
-    return <Navigate to="/select-role" replace />;
-  }
+  if (!user) return <Navigate to="/select-role" replace />;
 
   if (!profile) {
     return (
@@ -61,7 +60,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   return children;
 };
 
-// Route components to handle specific roles
+// Role-based Route Components
 const AdminRoute = () => (
   <ProtectedRoute allowedRoles={['admin']}>
     <AdminDashboard />
@@ -87,6 +86,22 @@ const CompanyRoute = () => (
 );
 
 function App() {
+  // ===== Backend Health Check =====
+  useEffect(() => {
+    const checkBackendHealth = async () => {
+      try {
+        const response = await fetch(`${process.env.REACT_APP_API_URL}/api/health`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const data = await response.json();
+        console.log('✅ Backend Health:', data);
+      } catch (error) {
+        console.error('❌ Failed to fetch backend health:', error);
+      }
+    };
+
+    checkBackendHealth();
+  }, []);
+
   return (
     <AuthProvider>
       <Router>
@@ -98,13 +113,13 @@ function App() {
             <Route path="/register/:role" element={<Register />} />
             <Route path="/login/:role" element={<Login />} />
             <Route path="/login" element={<Login />} />
-            
+
             {/* Protected Routes */}
             <Route path="/admin" element={<AdminRoute />} />
             <Route path="/institute" element={<InstituteRoute />} />
             <Route path="/student" element={<StudentRoute />} />
             <Route path="/company" element={<CompanyRoute />} />
-            
+
             {/* Fallback route */}
             <Route path="*" element={<Navigate to="/select-role" replace />} />
           </Routes>
