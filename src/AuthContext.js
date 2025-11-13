@@ -4,7 +4,9 @@ import {
   onAuthStateChanged, 
   signOut as firebaseSignOut,
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword 
+  createUserWithEmailAndPassword,
+  sendEmailVerification,
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
@@ -18,6 +20,37 @@ export const AuthProvider = ({ children }) => {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Send email verification
+  const sendVerificationEmail = async () => {
+    if (!user) throw new Error('No user logged in');
+    
+    try {
+      await sendEmailVerification(user);
+      console.log('✅ Verification email sent');
+      return true;
+    } catch (err) {
+      console.error('❌ Error sending verification email:', err);
+      throw err;
+    }
+  };
+
+  // Send password reset email
+  const resetPassword = async (email) => {
+    try {
+      await sendPasswordResetEmail(auth, email);
+      console.log('✅ Password reset email sent');
+      return true;
+    } catch (err) {
+      console.error('❌ Error sending password reset email:', err);
+      throw err;
+    }
+  };
+
+  // Check if email is verified
+  const isEmailVerified = () => {
+    return user?.emailVerified || false;
+  };
 
   // Load user profile from Firestore
   const loadUserProfile = async (userId) => {
@@ -71,7 +104,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Login function
+  // Login function with email verification check
   const login = async (email, password) => {
     try {
       setLoading(true);
@@ -80,6 +113,13 @@ export const AuthProvider = ({ children }) => {
 
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       console.log('✅ Firebase login successful:', userCredential.user.uid);
+
+      // Check if email is verified
+      if (!userCredential.user.emailVerified) {
+        console.warn('⚠️ Email not verified for user:', userCredential.user.uid);
+        // You can choose to allow login or block it based on your requirements
+        // For now, we'll allow login but track verification status
+      }
 
       await loadUserProfile(userCredential.user.uid);
 
@@ -93,7 +133,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Signup function
+  // Signup function with email verification
   const signup = async (email, password, userData) => {
     try {
       setLoading(true);
@@ -103,10 +143,16 @@ export const AuthProvider = ({ children }) => {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       console.log('✅ Firebase user created:', userCredential.user.uid);
 
+      // Send email verification
+      await sendEmailVerification(userCredential.user);
+      console.log('✅ Verification email sent');
+
+      // Create user profile in Firestore
       await setDoc(doc(db, 'users', userCredential.user.uid), {
         ...userData,
         uid: userCredential.user.uid,
         email: email,
+        emailVerified: false,
         createdAt: new Date(),
         lastUpdated: new Date()
       });
@@ -178,7 +224,10 @@ export const AuthProvider = ({ children }) => {
     login,
     signup,
     logout,
-    clearError
+    clearError,
+    sendVerificationEmail,
+    resetPassword,
+    isEmailVerified
   };
 
   return (

@@ -71,8 +71,7 @@ const AdminDashboard = () => {
     activeUsers: 0,
     suspendedUsers: 0,
     totalApplications: 0,
-    totalJobs: 0,
-    admissionRate: 0
+    totalJobs: 0
   });
   const [loading, setLoading] = useState(true);
   const [accessChecked, setAccessChecked] = useState(false);
@@ -296,7 +295,7 @@ const AdminDashboard = () => {
     }
   };
 
-  // Load admissions with real-time listener - FIXED for admission rate calculation
+  // Load admissions with real-time listener
   const loadAdmissions = () => {
     if (!user) return;
     
@@ -319,7 +318,6 @@ const AdminDashboard = () => {
         }));
         
         console.log('Admissions loaded:', admissionsData.length);
-        console.log('Admission statuses:', admissionsData.map(adm => ({ id: adm.id, status: adm.status })));
         setAdmissions(admissionsData);
       }, (error) => {
         console.error('Error loading admissions:', error);
@@ -443,7 +441,7 @@ const AdminDashboard = () => {
     }
   };
 
-  // Calculate statistics - FIXED admission rate calculation
+  // Calculate statistics - REMOVED admission rate calculation
   const calculateStatistics = () => {
     console.log('Calculating statistics with current data:', {
       users: users.length,
@@ -451,20 +449,6 @@ const AdminDashboard = () => {
       applications: applications.length,
       jobs: jobs.length
     });
-
-    // Calculate admission rate from admissions collection
-    const totalAdmissions = admissions.length;
-    const admittedAdmissions = admissions.filter(adm => 
-      adm.status === 'admitted' || adm.status === 'approved'
-    ).length;
-    
-    console.log('Total admissions:', totalAdmissions);
-    console.log('Admitted admissions:', admittedAdmissions);
-    
-    const admissionRate = totalAdmissions > 0 ? 
-      ((admittedAdmissions / totalAdmissions) * 100).toFixed(1) : 0;
-
-    console.log('Calculated admission rate:', admissionRate);
 
     const userStats = {
       totalUsers: users.length,
@@ -475,8 +459,7 @@ const AdminDashboard = () => {
       activeUsers: users.filter(u => u.status === 'active' || !u.status).length,
       suspendedUsers: users.filter(u => u.status === 'suspended').length,
       totalApplications: admissions.length + applications.length,
-      totalJobs: jobs.length,
-      admissionRate: parseFloat(admissionRate) // Ensure it's a number
+      totalJobs: jobs.length
     };
     
     console.log('New statistics calculated:', userStats);
@@ -494,7 +477,7 @@ const AdminDashboard = () => {
     loadInstitutions();
     loadFaculties();
     loadCourses();
-    loadAdmissions(); // Load admissions separately for admission rate
+    loadAdmissions();
     loadApplications();
     loadJobs();
     loadReports();
@@ -644,7 +627,7 @@ const AdminDashboard = () => {
     setViewInstitutionDialogOpen(true);
   };
 
-  // Add Institution - FIXED to handle profile creation properly
+  // Add Institution
   const addInstitution = async () => {
     if (!institutionData.name.trim() || !institutionData.email.trim() || !institutionData.password.trim()) {
       enqueueSnackbar('Institution name, email and password are required', { variant: 'error' });
@@ -811,7 +794,7 @@ const AdminDashboard = () => {
     }
   };
 
-  // Publish Admissions - FIXED with proper collection reference
+  // Publish Admissions
   const publishAdmissions = async () => {
     if (!admissionSettings.startDate || !admissionSettings.endDate) {
       enqueueSnackbar('Start date and end date are required', { variant: 'error' });
@@ -927,7 +910,7 @@ const AdminDashboard = () => {
     }
   };
 
-  // Delete Institution - FIXED to properly remove from dashboard
+  // Delete Institution
   const deleteInstitution = async (institutionId) => {
     if (!window.confirm('Are you sure you want to delete this institution? This will also delete all associated faculties and courses.')) {
       return;
@@ -976,7 +959,7 @@ const AdminDashboard = () => {
     }
   };
 
-  // Generate System Report - FIXED to show in dashboard
+  // Generate System Report - REMOVED admission rate from report
   const generateSystemReport = async () => {
     try {
       const reportData = {
@@ -1014,13 +997,13 @@ const AdminDashboard = () => {
     }
   };
 
-  // View Report Details - NEW FUNCTION
+  // View Report Details
   const handleViewReportDetails = (report) => {
-    setSelectedInstitution(report); // Reusing selectedInstitution state for report details
+    setSelectedInstitution(report);
     setViewReportsOpen(true);
   };
 
-  // Export to CSV - SIMPLE CSV EXPORT WITHOUT EXTERNAL LIBRARIES
+  // Export to CSV
   const exportToCSV = (data, filename) => {
     if (!data || data.length === 0) {
       enqueueSnackbar('No data to export', { variant: 'warning' });
@@ -1066,7 +1049,7 @@ const AdminDashboard = () => {
     }
   };
 
-  // Export Report Data - SIMPLE TEXT FORMAT
+  // Export Report Data
   const handleExportReport = (report) => {
     try {
       const reportData = `
@@ -1080,7 +1063,6 @@ Students: ${report.statistics?.students || 0}
 Institutions: ${report.statistics?.institutes || 0}
 Companies: ${report.statistics?.companies || 0}
 Total Applications: ${report.statistics?.totalApplications || 0}
-Admission Rate: ${report.statistics?.admissionRate || 0}%
 Active Jobs: ${report.statistics?.totalJobs || 0}
 
 USERS BY ROLE:
@@ -1366,9 +1348,9 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
             </Box>
           </Box>
 
-          {/* Enhanced Statistics Cards */}
+          {/* Enhanced Statistics Cards - REMOVED admission rate card */}
           <Grid container spacing={3}>
-            <Grid item xs={6} sm={4} md={2}>
+            <Grid item xs={6} sm={4} md={2.4}>
               <Card sx={{ background: 'rgba(255,255,255,0.2)', color: 'white', backdropFilter: 'blur(10px)' }}>
                 <CardContent sx={{ textAlign: 'center', p: 2 }}>
                   <Typography variant="h4" component="div" sx={{ fontWeight: 'bold' }}>
@@ -1380,7 +1362,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                 </CardContent>
               </Card>
             </Grid>
-            <Grid item xs={6} sm={4} md={2}>
+            <Grid item xs={6} sm={4} md={2.4}>
               <Card sx={{ background: 'rgba(255,255,255,0.2)', color: 'white', backdropFilter: 'blur(10px)' }}>
                 <CardContent sx={{ textAlign: 'center', p: 2 }}>
                   <Typography variant="h4" component="div" sx={{ fontWeight: 'bold' }}>
@@ -1392,7 +1374,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                 </CardContent>
               </Card>
             </Grid>
-            <Grid item xs={6} sm={4} md={2}>
+            <Grid item xs={6} sm={4} md={2.4}>
               <Card sx={{ background: 'rgba(255,255,255,0.2)', color: 'white', backdropFilter: 'blur(10px)' }}>
                 <CardContent sx={{ textAlign: 'center', p: 2 }}>
                   <Typography variant="h4" component="div" sx={{ fontWeight: 'bold' }}>
@@ -1404,7 +1386,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                 </CardContent>
               </Card>
             </Grid>
-            <Grid item xs={6} sm={4} md={2}>
+            <Grid item xs={6} sm={4} md={2.4}>
               <Card sx={{ background: 'rgba(255,255,255,0.2)', color: 'white', backdropFilter: 'blur(10px)' }}>
                 <CardContent sx={{ textAlign: 'center', p: 2 }}>
                   <Typography variant="h4" component="div" sx={{ fontWeight: 'bold' }}>
@@ -1416,7 +1398,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                 </CardContent>
               </Card>
             </Grid>
-            <Grid item xs={6} sm={4} md={2}>
+            <Grid item xs={6} sm={4} md={2.4}>
               <Card sx={{ background: 'rgba(255,255,255,0.2)', color: 'white', backdropFilter: 'blur(10px)' }}>
                 <CardContent sx={{ textAlign: 'center', p: 2 }}>
                   <Typography variant="h4" component="div" sx={{ fontWeight: 'bold' }}>
@@ -1424,18 +1406,6 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                   </Typography>
                   <Typography variant="body2">
                     Pending
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={6} sm={4} md={2}>
-              <Card sx={{ background: 'rgba(255,255,255,0.2)', color: 'white', backdropFilter: 'blur(10px)' }}>
-                <CardContent sx={{ textAlign: 'center', p: 2 }}>
-                  <Typography variant="h4" component="div" sx={{ fontWeight: 'bold' }}>
-                    {stats.admissionRate}%
-                  </Typography>
-                  <Typography variant="body2">
-                    Admission Rate
                   </Typography>
                 </CardContent>
               </Card>
@@ -1518,7 +1488,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
         </Tabs>
       </Paper>
 
-      {/* Overview Tab */}
+      {/* Overview Tab - REMOVED admission rate references */}
       <TabPanel value={tabValue} index={0}>
         <Grid container spacing={3}>
           {/* System Overview */}
@@ -1535,7 +1505,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                     </Typography>
                     <Typography variant="body1">Total Applications</Typography>
                     <Typography variant="body2" color="text.secondary">
-                      {stats.admissionRate}% admission rate
+                      Across all institutions and companies
                     </Typography>
                   </Box>
                 </Grid>
@@ -2073,7 +2043,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
         )}
       </TabPanel>
 
-      {/* System Reports Tab - FIXED with working buttons */}
+      {/* System Reports Tab - REMOVED admission rate references */}
       <TabPanel value={tabValue} index={6}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
           <Typography variant="h5">System Reports & Analytics</Typography>
@@ -2125,11 +2095,6 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                     <Grid item xs={6}>
                       <Typography variant="body2">
                         <strong>Applications:</strong> {report.statistics?.totalApplications || 0}
-                      </Typography>
-                    </Grid>
-                    <Grid item xs={6}>
-                      <Typography variant="body2">
-                        <strong>Admission Rate:</strong> {report.statistics?.admissionRate || 0}%
                       </Typography>
                     </Grid>
                     <Grid item xs={6}>
@@ -2386,7 +2351,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
         </DialogActions>
       </Dialog>
 
-      {/* Publish Admissions Dialog - IMPROVED with better instructions */}
+      {/* Publish Admissions Dialog */}
       <Dialog open={publishAdmissionsOpen} onClose={() => setPublishAdmissionsOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -2458,7 +2423,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
         </DialogActions>
       </Dialog>
 
-      {/* View Reports Dialog - NEW */}
+      {/* View Reports Dialog - REMOVED admission rate references */}
       <Dialog open={viewReportsOpen} onClose={() => setViewReportsOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
           <Typography variant="h6">Report Details</Typography>
@@ -2493,7 +2458,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                   <Typography variant="body2"><strong>Total Applications:</strong> {selectedInstitution.statistics?.totalApplications || 0}</Typography>
                 </Grid>
                 <Grid item xs={6}>
-                  <Typography variant="body2"><strong>Admission Rate:</strong> {selectedInstitution.statistics?.admissionRate || 0}%</Typography>
+                  <Typography variant="body2"><strong>Active Jobs:</strong> {selectedInstitution.statistics?.totalJobs || 0}</Typography>
                 </Grid>
               </Grid>
               
