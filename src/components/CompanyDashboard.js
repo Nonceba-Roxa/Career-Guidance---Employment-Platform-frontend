@@ -15,19 +15,6 @@ import { SnackbarProvider, useSnackbar } from 'notistack';
 import { useAuth } from '../AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Business, Work, People, Add, Edit,
-  Visibility, Email, Phone, LocationOn, CalendarToday,
-  TrendingUp, Assignment, CheckCircle, Cancel,
-  Security, DashboardCustomize,
-  Notifications, Settings, Download,
-  Search, LinkedIn, Language,
-  AutoAwesome, Refresh,
-  MoreVert, Schedule, ThumbUp, ThumbDown,
-  HowToReg, PendingActions
-} from '@mui/icons-material';
-
-// Firebase Firestore imports
-import { 
   collection,
   query,
   where,
@@ -38,9 +25,26 @@ import {
   doc,
   getDoc,
   getDocs,
-  serverTimestamp
+  serverTimestamp,
+  deleteDoc
 } from 'firebase/firestore';
 import { db } from '../firebase';
+
+// Professional color palette
+const COLORS = {
+  white: '#FFFFFF',
+  lightGray: '#F8F9FA',
+  mediumGray: '#E9ECEF',
+  darkGray: '#6C757D',
+  black: '#212529',
+  primary: '#2E7D32', // Green
+  primaryLight: '#4CAF50',
+  primaryDark: '#1B5E20',
+  success: '#28A745',
+  warning: '#FFC107',
+  error: '#DC3545',
+  info: '#17A2B8'
+};
 
 // Tab Panel Component
 function TabPanel({ children, value, index, ...other }) {
@@ -319,6 +323,48 @@ const CompanyDashboard = () => {
     }
 
     return Math.min(100, Math.round(score));
+  };
+
+  // NEW: Function to handle when student rejects job offer
+  const handleStudentRejection = async (applicationId) => {
+    try {
+      const applicationRef = doc(db, 'jobApplications', applicationId);
+      
+      // Delete the application since student rejected the offer
+      await deleteDoc(applicationRef);
+      
+      enqueueSnackbar('Student application removed as student rejected the job offer', { variant: 'success' });
+      
+      // Find the next eligible student from waitlist/pending for this job
+      const rejectedApplication = jobApplications.find(app => app.id === applicationId);
+      if (rejectedApplication) {
+        const jobApplicationsList = jobApplications.filter(app => 
+          app.jobId === rejectedApplication.jobId && 
+          app.status === 'pending'
+        );
+        
+        if (jobApplicationsList.length > 0) {
+          // Sort by match score and application date to find the next best candidate
+          const nextCandidate = jobApplicationsList.sort((a, b) => {
+            if (b.matchScore !== a.matchScore) {
+              return b.matchScore - a.matchScore;
+            }
+            return new Date(a.appliedAt) - new Date(b.appliedAt);
+          })[0];
+          
+          // Auto-approve the next candidate
+          await updateApplicationStatus(nextCandidate.id, 'approved');
+          enqueueSnackbar(`Next candidate ${nextCandidate.studentName} automatically approved from waitlist`, { variant: 'info' });
+        }
+      }
+      
+      // Refresh data
+      await fetchApplicationsData();
+      
+    } catch (error) {
+      console.error('Error handling student rejection:', error);
+      enqueueSnackbar('Failed to process student rejection: ' + error.message, { variant: 'error' });
+    }
   };
 
   // Calculate stats whenever jobs or applications change
@@ -604,17 +650,6 @@ const CompanyDashboard = () => {
     }
   };
 
-  const getStatusIcon = (status) => {
-    switch (status?.toLowerCase()) {
-      case 'approved': return <ThumbUp />;
-      case 'rejected': return <ThumbDown />;
-      case 'interview': return <Schedule />;
-      case 'review': return <PendingActions />;
-      case 'hired': return <HowToReg />;
-      default: return <PendingActions />;
-    }
-  };
-
   const exportApplications = () => {
     if (jobApplications.length === 0) {
       enqueueSnackbar('No applications to export', { variant: 'warning' });
@@ -742,51 +777,54 @@ const CompanyDashboard = () => {
   }
 
   return (
-    <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
+    <Container maxWidth="xl" sx={{ mt: 2, mb: 4, backgroundColor: COLORS.lightGray, minHeight: '100vh' }}>
       {/* Header */}
-      <Paper sx={{ p: 3, mb: 3, background: 'linear-gradient(135deg, #f39c12 0%, #e74c3c 100%)', color: 'white' }}>
+      <Paper sx={{ 
+        p: 3, 
+        mb: 3, 
+        background: `linear-gradient(135deg, ${COLORS.primary} 0%, ${COLORS.primaryLight} 100%)`, 
+        color: COLORS.white 
+      }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
             <Avatar sx={{ width: 100, height: 100, bgcolor: 'rgba(255,255,255,0.2)' }}>
-              <Business sx={{ fontSize: 50 }} />
+              <Typography variant="h4" sx={{ color: COLORS.white }}>
+                {profileData.name?.charAt(0) || 'C'}
+              </Typography>
             </Avatar>
             <Box>
               <Typography variant="h3" gutterBottom fontWeight="bold">
                 {profileData.name || 'Company Name'}
               </Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <LocationOn fontSize="small" />
-                  <Typography variant="h6">
-                    {profileData.location || 'Location not specified'}
-                  </Typography>
-                </Box>
+                <Typography variant="h6">
+                  {profileData.location || 'Location not specified'}
+                </Typography>
                 {profileData.industry && (
                   <Chip 
                     label={profileData.industry} 
                     variant="outlined" 
-                    sx={{ color: 'white', borderColor: 'white' }}
+                    sx={{ color: COLORS.white, borderColor: COLORS.white }}
                   />
                 )}
                 <Chip 
                   label="Verified Company" 
                   variant="outlined" 
-                  sx={{ color: 'white', borderColor: 'white' }}
-                  icon={<Security />}
+                  sx={{ color: COLORS.white, borderColor: COLORS.white }}
                 />
               </Box>
             </Box>
           </Box>
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Tooltip title="Refresh Data">
-              <IconButton onClick={refreshData} sx={{ color: 'white' }}>
-                <Refresh />
-              </IconButton>
+              <Button onClick={refreshData} sx={{ color: COLORS.white }}>
+                Refresh
+              </Button>
             </Tooltip>
             <Tooltip title="Edit Profile">
-              <IconButton onClick={() => setEditProfileOpen(true)} sx={{ color: 'white' }}>
-                <Edit />
-              </IconButton>
+              <Button onClick={() => setEditProfileOpen(true)} sx={{ color: COLORS.white }}>
+                Edit Profile
+              </Button>
             </Tooltip>
             <Button variant="outlined" color="inherit" onClick={handleLogout}>
               Logout
@@ -796,96 +834,142 @@ const CompanyDashboard = () => {
       </Paper>
 
       {/* Connection Status */}
-      <Alert severity="success" sx={{ mb: 3, display: 'flex', alignItems: 'center' }}>
-        <CheckCircle sx={{ mr: 1 }} />
+      <Alert severity="success" sx={{ mb: 3 }}>
         Firestore connected - {jobApplications.length} job applications loaded from {jobs.length} jobs
       </Alert>
 
       {/* Quick Stats */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
         <Grid item xs={12} sm={6} md={2.4}>
-          <Card sx={{ p: 3, textAlign: 'center', transition: 'transform 0.2s', '&:hover': { transform: 'translateY(-4px)' } }}>
-            <Work sx={{ fontSize: 48, color: '#3498db', mb: 2 }} />
-            <Typography variant="h4" color="primary" gutterBottom fontWeight="bold">
+          <Card sx={{ 
+            p: 3, 
+            textAlign: 'center', 
+            transition: 'transform 0.2s', 
+            '&:hover': { transform: 'translateY(-4px)' },
+            backgroundColor: COLORS.white,
+            border: `1px solid ${COLORS.mediumGray}`
+          }}>
+            <Typography variant="h4" sx={{ color: COLORS.primary, mb: 2 }}>Jobs</Typography>
+            <Typography variant="h4" sx={{ color: COLORS.primary }} gutterBottom fontWeight="bold">
               {stats.totalJobs}
             </Typography>
-            <Typography variant="h6" color="textSecondary">Total Jobs</Typography>
+            <Typography variant="h6" color={COLORS.darkGray}>Total Jobs</Typography>
           </Card>
         </Grid>
         <Grid item xs={12} sm={6} md={2.4}>
-          <Card sx={{ p: 3, textAlign: 'center', transition: 'transform 0.2s', '&:hover': { transform: 'translateY(-4px)' } }}>
-            <Assignment sx={{ fontSize: 48, color: '#2ecc71', mb: 2 }} />
-            <Typography variant="h4" color="success" gutterBottom fontWeight="bold">
+          <Card sx={{ 
+            p: 3, 
+            textAlign: 'center', 
+            transition: 'transform 0.2s', 
+            '&:hover': { transform: 'translateY(-4px)' },
+            backgroundColor: COLORS.white,
+            border: `1px solid ${COLORS.mediumGray}`
+          }}>
+            <Typography variant="h4" sx={{ color: COLORS.success, mb: 2 }}>Active</Typography>
+            <Typography variant="h4" sx={{ color: COLORS.success }} gutterBottom fontWeight="bold">
               {stats.activeJobs}
             </Typography>
-            <Typography variant="h6" color="textSecondary">Active Jobs</Typography>
+            <Typography variant="h6" color={COLORS.darkGray}>Active Jobs</Typography>
           </Card>
         </Grid>
         <Grid item xs={12} sm={6} md={2.4}>
-          <Card sx={{ p: 3, textAlign: 'center', transition: 'transform 0.2s', '&:hover': { transform: 'translateY(-4px)' } }}>
-            <People sx={{ fontSize: 48, color: '#9b59b6', mb: 2 }} />
-            <Typography variant="h4" color="secondary" gutterBottom fontWeight="bold">
+          <Card sx={{ 
+            p: 3, 
+            textAlign: 'center', 
+            transition: 'transform 0.2s', 
+            '&:hover': { transform: 'translateY(-4px)' },
+            backgroundColor: COLORS.white,
+            border: `1px solid ${COLORS.mediumGray}`
+          }}>
+            <Typography variant="h4" sx={{ color: COLORS.info, mb: 2 }}>Applications</Typography>
+            <Typography variant="h4" sx={{ color: COLORS.info }} gutterBottom fontWeight="bold">
               {stats.totalApplications}
             </Typography>
-            <Typography variant="h6" color="textSecondary">Applications</Typography>
+            <Typography variant="h6" color={COLORS.darkGray}>Applications</Typography>
           </Card>
         </Grid>
         <Grid item xs={12} sm={6} md={2.4}>
-          <Card sx={{ p: 3, textAlign: 'center', transition: 'transform 0.2s', '&:hover': { transform: 'translateY(-4px)' } }}>
-            <AutoAwesome sx={{ fontSize: 48, color: '#e74c3c', mb: 2 }} />
-            <Typography variant="h4" color="error" gutterBottom fontWeight="bold">
+          <Card sx={{ 
+            p: 3, 
+            textAlign: 'center', 
+            transition: 'transform 0.2s', 
+            '&:hover': { transform: 'translateY(-4px)' },
+            backgroundColor: COLORS.white,
+            border: `1px solid ${COLORS.mediumGray}`
+          }}>
+            <Typography variant="h4" sx={{ color: COLORS.warning, mb: 2 }}>Qualified</Typography>
+            <Typography variant="h4" sx={{ color: COLORS.warning }} gutterBottom fontWeight="bold">
               {stats.qualifiedApplicants}
             </Typography>
-            <Typography variant="h6" color="textSecondary">Qualified</Typography>
+            <Typography variant="h6" color={COLORS.darkGray}>Qualified</Typography>
           </Card>
         </Grid>
         <Grid item xs={12} sm={6} md={2.4}>
-          <Card sx={{ p: 3, textAlign: 'center', transition: 'transform 0.2s', '&:hover': { transform: 'translateY(-4px)' } }}>
-            <TrendingUp sx={{ fontSize: 48, color: '#f39c12', mb: 2 }} />
-            <Typography variant="h4" color="warning" gutterBottom fontWeight="bold">
+          <Card sx={{ 
+            p: 3, 
+            textAlign: 'center', 
+            transition: 'transform 0.2s', 
+            '&:hover': { transform: 'translateY(-4px)' },
+            backgroundColor: COLORS.white,
+            border: `1px solid ${COLORS.mediumGray}`
+          }}>
+            <Typography variant="h4" sx={{ color: COLORS.primaryLight, mb: 2 }}>Rate</Typography>
+            <Typography variant="h4" sx={{ color: COLORS.primaryLight }} gutterBottom fontWeight="bold">
               {stats.interviewRate}%
             </Typography>
-            <Typography variant="h6" color="textSecondary">Interview Rate</Typography>
+            <Typography variant="h6" color={COLORS.darkGray}>Interview Rate</Typography>
           </Card>
         </Grid>
       </Grid>
 
       {/* Main Content with Tabs */}
-      <Paper sx={{ width: '100%' }}>
+      <Paper sx={{ width: '100%', backgroundColor: COLORS.white }}>
         <Tabs 
           value={tabValue} 
           onChange={(e, newValue) => setTabValue(newValue)}
-          sx={{ borderBottom: 1, borderColor: 'divider' }}
+          sx={{ 
+            borderBottom: 1, 
+            borderColor: COLORS.mediumGray,
+            '& .MuiTab-root': {
+              color: COLORS.darkGray,
+              '&.Mui-selected': {
+                color: COLORS.primary,
+              },
+            },
+            '& .MuiTabs-indicator': {
+              backgroundColor: COLORS.primary,
+            },
+          }}
           variant="scrollable"
           scrollButtons="auto"
         >
-          <Tab icon={<DashboardCustomize />} label="Dashboard" />
-          <Tab icon={<Work />} label={`Jobs (${jobs.length})`} />
-          <Tab icon={<People />} label={`Applications (${jobApplications.length})`} />
-          <Tab icon={<AutoAwesome />} label="Qualified Candidates" />
-          <Tab icon={<Business />} label="Company Profile" />
+          <Tab label="Dashboard" />
+          <Tab label={`Jobs (${jobs.length})`} />
+          <Tab label={`Applications (${jobApplications.length})`} />
+          <Tab label="Qualified Candidates" />
+          <Tab label="Company Profile" />
         </Tabs>
 
         {/* Dashboard Tab */}
         <TabPanel value={tabValue} index={0}>
           <Grid container spacing={3}>
             <Grid item xs={12} lg={8}>
-              <Paper sx={{ p: 3 }}>
-                <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <TrendingUp /> Application Analytics
+              <Paper sx={{ p: 3, backgroundColor: COLORS.white, border: `1px solid ${COLORS.mediumGray}` }}>
+                <Typography variant="h5" gutterBottom color={COLORS.black}>
+                  Application Analytics
                 </Typography>
-                <Box sx={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'grey.50' }}>
+                <Box sx={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: COLORS.lightGray }}>
                   <Box sx={{ textAlign: 'center' }}>
-                    <Typography variant="h6" gutterBottom>
+                    <Typography variant="h6" gutterBottom color={COLORS.black}>
                       Application Overview
                     </Typography>
-                    <Typography variant="body1" color="textSecondary" gutterBottom>
+                    <Typography variant="body1" color={COLORS.darkGray} gutterBottom>
                       Total Applications: <strong>{stats.totalApplications}</strong>
                     </Typography>
-                    <Typography variant="body1" color="textSecondary" gutterBottom>
+                    <Typography variant="body1" color={COLORS.darkGray} gutterBottom>
                       Qualified Candidates: <strong>{stats.qualifiedApplicants}</strong>
                     </Typography>
-                    <Typography variant="body1" color="textSecondary">
+                    <Typography variant="body1" color={COLORS.darkGray}>
                       Interview Rate: <strong>{stats.interviewRate}%</strong>
                     </Typography>
                   </Box>
@@ -893,26 +977,42 @@ const CompanyDashboard = () => {
               </Paper>
             </Grid>
             <Grid item xs={12} lg={4}>
-              <Paper sx={{ p: 3 }}>
-                <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Notifications /> Quick Actions
+              <Paper sx={{ p: 3, backgroundColor: COLORS.white, border: `1px solid ${COLORS.mediumGray}` }}>
+                <Typography variant="h5" gutterBottom color={COLORS.black}>
+                  Quick Actions
                 </Typography>
                 <List>
                   <ListItem button onClick={() => setAddJobOpen(true)}>
-                    <ListItemIcon><Add color="primary" /></ListItemIcon>
-                    <ListItemText primary="Post New Job" secondary="Create a new job listing" />
+                    <ListItemText 
+                      primary="Post New Job" 
+                      primaryTypographyProps={{ color: COLORS.black }}
+                      secondary="Create a new job listing"
+                      secondaryTypographyProps={{ color: COLORS.darkGray }}
+                    />
                   </ListItem>
                   <ListItem button onClick={() => setTabValue(3)}>
-                    <ListItemIcon><AutoAwesome color="primary" /></ListItemIcon>
-                    <ListItemText primary="View Qualified Candidates" secondary="Find best matches" />
+                    <ListItemText 
+                      primary="View Qualified Candidates" 
+                      primaryTypographyProps={{ color: COLORS.black }}
+                      secondary="Find best matches"
+                      secondaryTypographyProps={{ color: COLORS.darkGray }}
+                    />
                   </ListItem>
                   <ListItem button onClick={exportApplications}>
-                    <ListItemIcon><Download color="primary" /></ListItemIcon>
-                    <ListItemText primary="Export Applications" secondary="Download as CSV" />
+                    <ListItemText 
+                      primary="Export Applications" 
+                      primaryTypographyProps={{ color: COLORS.black }}
+                      secondary="Download as CSV"
+                      secondaryTypographyProps={{ color: COLORS.darkGray }}
+                    />
                   </ListItem>
                   <ListItem button onClick={() => setEditProfileOpen(true)}>
-                    <ListItemIcon><Business color="primary" /></ListItemIcon>
-                    <ListItemText primary="Update Profile" secondary="Edit company information" />
+                    <ListItemText 
+                      primary="Update Profile" 
+                      primaryTypographyProps={{ color: COLORS.black }}
+                      secondary="Edit company information"
+                      secondaryTypographyProps={{ color: COLORS.darkGray }}
+                    />
                   </ListItem>
                 </List>
               </Paper>
@@ -923,16 +1023,13 @@ const CompanyDashboard = () => {
         {/* Jobs Tab */}
         <TabPanel value={tabValue} index={1}>
           <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="h6">
+            <Typography variant="h6" color={COLORS.black}>
               Job Management ({jobs.length})
             </Typography>
             <Button 
               variant="contained" 
-              startIcon={<Add />}
               onClick={() => setAddJobOpen(true)}
-              sx={{
-                background: 'linear-gradient(135deg, #f39c12 0%, #e74c3c 100%)'
-              }}
+              sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.primaryDark } }}
             >
               Post New Job
             </Button>
@@ -941,10 +1038,16 @@ const CompanyDashboard = () => {
           <Grid container spacing={3}>
             {jobs.map(job => (
               <Grid item xs={12} md={6} lg={4} key={job.id}>
-                <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <Card sx={{ 
+                  height: '100%', 
+                  display: 'flex', 
+                  flexDirection: 'column',
+                  backgroundColor: COLORS.white,
+                  border: `1px solid ${COLORS.mediumGray}`
+                }}>
                   <CardContent sx={{ flexGrow: 1 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                      <Typography variant="h6" gutterBottom>
+                      <Typography variant="h6" gutterBottom color={COLORS.black}>
                         {job.title}
                       </Typography>
                       <Chip 
@@ -954,7 +1057,7 @@ const CompanyDashboard = () => {
                       />
                     </Box>
                     
-                    <Typography variant="body2" color="textSecondary" paragraph>
+                    <Typography variant="body2" color={COLORS.darkGray} paragraph>
                       {job.description.length > 100 
                         ? `${job.description.substring(0, 100)}...` 
                         : job.description}
@@ -962,12 +1065,12 @@ const CompanyDashboard = () => {
 
                     <Box sx={{ mb: 2 }}>
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                        <Typography variant="body2"><strong>Type:</strong> {job.type}</Typography>
-                        <Typography variant="body2"><strong>Level:</strong> {job.level}</Typography>
+                        <Typography variant="body2" color={COLORS.black}><strong>Type:</strong> {job.type}</Typography>
+                        <Typography variant="body2" color={COLORS.black}><strong>Level:</strong> {job.level}</Typography>
                       </Box>
                       <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <Typography variant="body2"><strong>Location:</strong> {job.location}</Typography>
-                        <Typography variant="body2"><strong>Salary:</strong> {job.salary}</Typography>
+                        <Typography variant="body2" color={COLORS.black}><strong>Location:</strong> {job.location}</Typography>
+                        <Typography variant="body2" color={COLORS.black}><strong>Salary:</strong> {job.salary}</Typography>
                       </Box>
                     </Box>
 
@@ -987,12 +1090,9 @@ const CompanyDashboard = () => {
                     <Button 
                       size="small" 
                       onClick={() => getQualifiedApplicants(job)}
-                      startIcon={<AutoAwesome />}
+                      sx={{ color: COLORS.primary }}
                     >
                       Find Candidates ({getApplicationCountForJob(job.id)})
-                    </Button>
-                    <Button size="small" startIcon={<Visibility />}>
-                      View Details
                     </Button>
                   </CardActions>
                 </Card>
@@ -1014,9 +1114,6 @@ const CompanyDashboard = () => {
               placeholder="Search applications..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              InputProps={{
-                startAdornment: <InputAdornment position="start"><Search /></InputAdornment>,
-              }}
               sx={{ minWidth: 250 }}
             />
             <Select
@@ -1033,22 +1130,22 @@ const CompanyDashboard = () => {
               <MenuItem value="rejected">Rejected</MenuItem>
             </Select>
             <Button 
-              startIcon={<Download />} 
               onClick={exportApplications}
               variant="outlined"
               disabled={jobApplications.length === 0}
+              sx={{ borderColor: COLORS.primary, color: COLORS.primary }}
             >
               Export
             </Button>
             <Button 
-              startIcon={<Refresh />} 
               onClick={refreshData}
               variant="outlined"
+              sx={{ borderColor: COLORS.darkGray, color: COLORS.darkGray }}
             >
               Refresh
             </Button>
             <Box sx={{ flexGrow: 1 }} />
-            <Typography color="textSecondary">
+            <Typography color={COLORS.darkGray}>
               Showing {filteredApplications.length} of {jobApplications.length} applications
             </Typography>
           </Box>
@@ -1057,33 +1154,33 @@ const CompanyDashboard = () => {
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell><strong>Applicant</strong></TableCell>
-                  <TableCell><strong>Job Title</strong></TableCell>
-                  <TableCell><strong>Qualifications</strong></TableCell>
-                  <TableCell><strong>Applied Date</strong></TableCell>
-                  <TableCell><strong>Status</strong></TableCell>
-                  <TableCell><strong>Match Score</strong></TableCell>
-                  <TableCell><strong>Actions</strong></TableCell>
+                  <TableCell><Typography color={COLORS.black} fontWeight="bold">Applicant</Typography></TableCell>
+                  <TableCell><Typography color={COLORS.black} fontWeight="bold">Job Title</Typography></TableCell>
+                  <TableCell><Typography color={COLORS.black} fontWeight="bold">Qualifications</Typography></TableCell>
+                  <TableCell><Typography color={COLORS.black} fontWeight="bold">Applied Date</Typography></TableCell>
+                  <TableCell><Typography color={COLORS.black} fontWeight="bold">Status</Typography></TableCell>
+                  <TableCell><Typography color={COLORS.black} fontWeight="bold">Match Score</Typography></TableCell>
+                  <TableCell><Typography color={COLORS.black} fontWeight="bold">Actions</Typography></TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {filteredApplications.map(application => (
-                  <TableRow key={application.id} hover>
+                  <TableRow key={application.id} hover sx={{ '&:hover': { backgroundColor: COLORS.lightGray } }}>
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Avatar sx={{ bgcolor: 'primary.main' }}>
+                        <Avatar sx={{ bgcolor: COLORS.primary }}>
                           {application.studentName?.charAt(0)}
                         </Avatar>
                         <Box>
-                          <Typography fontWeight="bold">{application.studentName}</Typography>
-                          <Typography variant="body2" color="textSecondary">
+                          <Typography fontWeight="bold" color={COLORS.black}>{application.studentName}</Typography>
+                          <Typography variant="body2" color={COLORS.darkGray}>
                             {application.studentEmail}
                           </Typography>
                         </Box>
                       </Box>
                     </TableCell>
                     <TableCell>
-                      <Typography fontWeight="medium">{application.jobTitle}</Typography>
+                      <Typography fontWeight="medium" color={COLORS.black}>{application.jobTitle}</Typography>
                     </TableCell>
                     <TableCell>
                       <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
@@ -1110,7 +1207,6 @@ const CompanyDashboard = () => {
                         label={application.status} 
                         color={getStatusColor(application.status)}
                         size="small"
-                        icon={getStatusIcon(application.status)}
                       />
                     </TableCell>
                     <TableCell>
@@ -1124,24 +1220,20 @@ const CompanyDashboard = () => {
                     </TableCell>
                     <TableCell>
                       <Box sx={{ display: 'flex', gap: 1 }}>
-                        <Tooltip title="View Details">
-                          <IconButton 
-                            size="small" 
-                            onClick={() => viewApplicationDetails(application)}
-                            color="primary"
-                          >
-                            <Visibility />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Quick Actions">
-                          <IconButton 
-                            size="small" 
-                            onClick={(e) => handleActionMenuOpen(e, application)}
-                            color="info"
-                          >
-                            <MoreVert />
-                          </IconButton>
-                        </Tooltip>
+                        <Button 
+                          size="small" 
+                          onClick={() => viewApplicationDetails(application)}
+                          sx={{ color: COLORS.primary }}
+                        >
+                          View
+                        </Button>
+                        <Button 
+                          size="small" 
+                          onClick={(e) => handleActionMenuOpen(e, application)}
+                          sx={{ color: COLORS.info }}
+                        >
+                          Actions
+                        </Button>
                       </Box>
                     </TableCell>
                   </TableRow>
@@ -1159,27 +1251,27 @@ const CompanyDashboard = () => {
 
         {/* Qualified Candidates Tab */}
         <TabPanel value={tabValue} index={3}>
-          <Typography variant="h6" gutterBottom>
+          <Typography variant="h6" gutterBottom color={COLORS.black}>
             Qualified Candidates Ready for Interview
           </Typography>
-          <Typography variant="body2" color="textSecondary" sx={{ mb: 3 }}>
+          <Typography variant="body2" color={COLORS.darkGray} sx={{ mb: 3 }}>
             These candidates have been automatically matched based on your job requirements and are ready for interview consideration.
           </Typography>
 
           <Grid container spacing={3}>
             {qualifiedApplicants.map((applicant, index) => (
               <Grid item xs={12} md={6} key={applicant.id || index}>
-                <Card sx={{ p: 2 }}>
+                <Card sx={{ p: 2, backgroundColor: COLORS.white, border: `1px solid ${COLORS.mediumGray}` }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <Avatar sx={{ bgcolor: 'primary.main', width: 60, height: 60 }}>
+                      <Avatar sx={{ bgcolor: COLORS.primary, width: 60, height: 60 }}>
                         {applicant.studentName?.charAt(0)}
                       </Avatar>
                       <Box>
-                        <Typography variant="h6" gutterBottom>
+                        <Typography variant="h6" gutterBottom color={COLORS.black}>
                           {applicant.studentName}
                         </Typography>
-                        <Typography variant="body2" color="textSecondary">
+                        <Typography variant="body2" color={COLORS.darkGray}>
                           {applicant.studentEmail}
                         </Typography>
                       </Box>
@@ -1192,23 +1284,23 @@ const CompanyDashboard = () => {
 
                   <Grid container spacing={2} sx={{ mb: 2 }}>
                     <Grid item xs={6}>
-                      <Typography variant="body2"><strong>Field:</strong> {applicant.field}</Typography>
+                      <Typography variant="body2" color={COLORS.black}><strong>Field:</strong> {applicant.field}</Typography>
                     </Grid>
                     <Grid item xs={6}>
-                      <Typography variant="body2"><strong>GPA:</strong> {applicant.gpa}</Typography>
+                      <Typography variant="body2" color={COLORS.black}><strong>GPA:</strong> {applicant.gpa}</Typography>
                     </Grid>
                     <Grid item xs={6}>
-                      <Typography variant="body2"><strong>Experience:</strong> {applicant.experience} years</Typography>
+                      <Typography variant="body2" color={COLORS.black}><strong>Experience:</strong> {applicant.experience} years</Typography>
                     </Grid>
                     <Grid item xs={6}>
-                      <Typography variant="body2"><strong>Certificates:</strong> {applicant.certificates}</Typography>
+                      <Typography variant="body2" color={COLORS.black}><strong>Certificates:</strong> {applicant.certificates}</Typography>
                     </Grid>
                   </Grid>
 
-                  <Typography variant="body2" gutterBottom><strong>Education:</strong> {applicant.education}</Typography>
+                  <Typography variant="body2" gutterBottom color={COLORS.black}><strong>Education:</strong> {applicant.education}</Typography>
                   
                   <Box sx={{ mb: 2 }}>
-                    <Typography variant="body2" gutterBottom><strong>Skills:</strong></Typography>
+                    <Typography variant="body2" gutterBottom color={COLORS.black}><strong>Skills:</strong></Typography>
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                       {applicant.skills?.map((skill, idx) => (
                         <Chip key={idx} label={skill} size="small" variant="outlined" />
@@ -1218,7 +1310,7 @@ const CompanyDashboard = () => {
 
                   {applicant.matchReasons && applicant.matchReasons.length > 0 && (
                     <Box sx={{ mb: 2 }}>
-                      <Typography variant="body2" gutterBottom><strong>Match Reasons:</strong></Typography>
+                      <Typography variant="body2" gutterBottom color={COLORS.black}><strong>Match Reasons:</strong></Typography>
                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                         {applicant.matchReasons.map((reason, idx) => (
                           <Chip key={idx} label={reason} size="small" color="success" variant="outlined" />
@@ -1231,19 +1323,29 @@ const CompanyDashboard = () => {
                     <Button 
                       size="small" 
                       variant="contained" 
-                      startIcon={<Email />}
                       onClick={() => window.location.href = `mailto:${applicant.studentEmail}`}
+                      sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.primaryDark } }}
                     >
                       Contact
                     </Button>
                     <Button 
                       size="small" 
                       variant="outlined" 
-                      startIcon={<Visibility />}
                       onClick={() => viewApplicationDetails(applicant)}
+                      sx={{ borderColor: COLORS.primary, color: COLORS.primary }}
                     >
                       Full Profile
                     </Button>
+                    {(applicant.status === 'approved' || applicant.status === 'hired') && (
+                      <Button 
+                        size="small" 
+                        color="error"
+                        variant="outlined"
+                        onClick={() => handleStudentRejection(applicant.id)}
+                      >
+                        Student Rejected
+                      </Button>
+                    )}
                   </Box>
                 </Card>
               </Grid>
@@ -1261,40 +1363,54 @@ const CompanyDashboard = () => {
         <TabPanel value={tabValue} index={4}>
           <Grid container spacing={3}>
             <Grid item xs={12} md={6}>
-              <Paper sx={{ p: 3 }}>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Business /> Company Information
+              <Paper sx={{ p: 3, backgroundColor: COLORS.white, border: `1px solid ${COLORS.mediumGray}` }}>
+                <Typography variant="h6" gutterBottom color={COLORS.black}>
+                  Company Information
                 </Typography>
                 <Button 
                   variant="outlined" 
-                  startIcon={<Edit />}
                   onClick={() => setEditProfileOpen(true)}
-                  sx={{ mt: 1, mb: 3 }}
+                  sx={{ mt: 1, mb: 3, borderColor: COLORS.primary, color: COLORS.primary }}
                 >
                   Edit Profile
                 </Button>
                 
                 <List>
                   <ListItem>
-                    <ListItemIcon><Business color="primary" /></ListItemIcon>
-                    <ListItemText primary="Company Name" secondary={profileData.name} />
+                    <ListItemText 
+                      primary="Company Name" 
+                      primaryTypographyProps={{ color: COLORS.black }}
+                      secondary={profileData.name} 
+                    />
                   </ListItem>
                   <ListItem>
-                    <ListItemIcon><Work color="primary" /></ListItemIcon>
-                    <ListItemText primary="Industry" secondary={profileData.industry || 'Not specified'} />
+                    <ListItemText 
+                      primary="Industry" 
+                      primaryTypographyProps={{ color: COLORS.black }}
+                      secondary={profileData.industry || 'Not specified'} 
+                    />
                   </ListItem>
                   <ListItem>
-                    <ListItemIcon><People color="primary" /></ListItemIcon>
-                    <ListItemText primary="Company Size" secondary={profileData.size || 'Not specified'} />
+                    <ListItemText 
+                      primary="Company Size" 
+                      primaryTypographyProps={{ color: COLORS.black }}
+                      secondary={profileData.size || 'Not specified'} 
+                    />
                   </ListItem>
                   <ListItem>
-                    <ListItemIcon><LocationOn color="primary" /></ListItemIcon>
-                    <ListItemText primary="Location" secondary={profileData.location} />
+                    <ListItemText 
+                      primary="Location" 
+                      primaryTypographyProps={{ color: COLORS.black }}
+                      secondary={profileData.location} 
+                    />
                   </ListItem>
                   {profileData.foundedYear && (
                     <ListItem>
-                      <ListItemIcon><CalendarToday color="primary" /></ListItemIcon>
-                      <ListItemText primary="Founded" secondary={profileData.foundedYear} />
+                      <ListItemText 
+                        primary="Founded" 
+                        primaryTypographyProps={{ color: COLORS.black }}
+                        secondary={profileData.foundedYear} 
+                      />
                     </ListItem>
                   )}
                 </List>
@@ -1302,53 +1418,71 @@ const CompanyDashboard = () => {
             </Grid>
             
             <Grid item xs={12} md={6}>
-              <Paper sx={{ p: 3 }}>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Settings /> Contact & Settings
+              <Paper sx={{ p: 3, backgroundColor: COLORS.white, border: `1px solid ${COLORS.mediumGray}` }}>
+                <Typography variant="h6" gutterBottom color={COLORS.black}>
+                  Contact & Settings
                 </Typography>
                 <List>
                   <ListItem>
-                    <ListItemIcon><Email color="primary" /></ListItemIcon>
-                    <ListItemText primary="Contact Email" secondary={profileData.contactEmail} />
+                    <ListItemText 
+                      primary="Contact Email" 
+                      primaryTypographyProps={{ color: COLORS.black }}
+                      secondary={profileData.contactEmail} 
+                    />
                   </ListItem>
                   <ListItem>
-                    <ListItemIcon><Phone color="primary" /></ListItemIcon>
-                    <ListItemText primary="Phone" secondary={profileData.phone || 'Not specified'} />
+                    <ListItemText 
+                      primary="Phone" 
+                      primaryTypographyProps={{ color: COLORS.black }}
+                      secondary={profileData.phone || 'Not specified'} 
+                    />
                   </ListItem>
                   {profileData.website && (
                     <ListItem>
-                      <ListItemIcon><Language color="primary" /></ListItemIcon>
-                      <ListItemText primary="Website" secondary={profileData.website} />
+                      <ListItemText 
+                        primary="Website" 
+                        primaryTypographyProps={{ color: COLORS.black }}
+                        secondary={profileData.website} 
+                      />
                     </ListItem>
                   )}
                   {profileData.linkedin && (
                     <ListItem>
-                      <ListItemIcon><LinkedIn color="primary" /></ListItemIcon>
-                      <ListItemText primary="LinkedIn" secondary={profileData.linkedin} />
+                      <ListItemText 
+                        primary="LinkedIn" 
+                        primaryTypographyProps={{ color: COLORS.black }}
+                        secondary={profileData.linkedin} 
+                      />
                     </ListItem>
                   )}
                 </List>
 
-                <Typography variant="h6" sx={{ mt: 3, mb: 2 }}>Preferences</Typography>
+                <Typography variant="h6" sx={{ mt: 3, mb: 2 }} color={COLORS.black}>Preferences</Typography>
                 <List>
                   <ListItem>
                     <ListItemText 
                       primary="Auto-Match Candidates" 
+                      primaryTypographyProps={{ color: COLORS.black }}
                       secondary="Automatically find qualified applicants" 
+                      secondaryTypographyProps={{ color: COLORS.darkGray }}
                     />
                     <Switch defaultChecked />
                   </ListItem>
                   <ListItem>
                     <ListItemText 
                       primary="Email Notifications" 
+                      primaryTypographyProps={{ color: COLORS.black }}
                       secondary="Receive alerts for new applications" 
+                      secondaryTypographyProps={{ color: COLORS.darkGray }}
                     />
                     <Switch defaultChecked />
                   </ListItem>
                   <ListItem>
                     <ListItemText 
                       primary="Public Profile" 
+                      primaryTypographyProps={{ color: COLORS.black }}
                       secondary="Show company in job searches" 
+                      secondaryTypographyProps={{ color: COLORS.darkGray }}
                     />
                     <Switch defaultChecked />
                   </ListItem>
@@ -1362,9 +1496,7 @@ const CompanyDashboard = () => {
       {/* Add Job Dialog with Stepper */}
       <Dialog open={addJobOpen} onClose={() => setAddJobOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Work /> Post New Job
-          </Box>
+          <Typography variant="h6" color={COLORS.black}>Post New Job</Typography>
           <Stepper activeStep={activeStep} sx={{ mt: 3 }}>
             {jobSteps.map((label) => (
               <Step key={label}>
@@ -1432,7 +1564,7 @@ const CompanyDashboard = () => {
           {/* Step 2: Requirements */}
           {activeStep === 1 && (
             <Box sx={{ mt: 2 }}>
-              <Typography variant="h6" gutterBottom>Qualifications & Requirements</Typography>
+              <Typography variant="h6" gutterBottom color={COLORS.black}>Qualifications & Requirements</Typography>
               
               <TextField
                 label="Field/Industry"
@@ -1523,7 +1655,7 @@ const CompanyDashboard = () => {
           {/* Step 3: Compensation & Benefits */}
           {activeStep === 2 && (
             <Box sx={{ mt: 2 }}>
-              <Typography variant="h6" gutterBottom>Compensation & Details</Typography>
+              <Typography variant="h6" gutterBottom color={COLORS.black}>Compensation & Details</Typography>
               
               <Grid container spacing={2}>
                 <Grid item xs={12} sm={6}>
@@ -1592,9 +1724,7 @@ const CompanyDashboard = () => {
               onClick={postJob}
               variant="contained"
               disabled={!jobData.title.trim() || !jobData.description.trim()}
-              sx={{
-                background: 'linear-gradient(135deg, #f39c12 0%, #e74c3c 100%)'
-              }}
+              sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.primaryDark } }}
             >
               Post Job
             </Button>
@@ -1609,9 +1739,7 @@ const CompanyDashboard = () => {
       {/* Edit Profile Dialog */}
       <Dialog open={editProfileOpen} onClose={() => setEditProfileOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Business /> Edit Company Profile
-          </Box>
+          <Typography variant="h6" color={COLORS.black}>Edit Company Profile</Typography>
         </DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
@@ -1712,9 +1840,7 @@ const CompanyDashboard = () => {
           <Button 
             onClick={updateProfileHandler}
             variant="contained"
-            sx={{
-              background: 'linear-gradient(135deg, #f39c12 0%, #e74c3c 100%)'
-            }}
+            sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.primaryDark } }}
           >
             Update Profile
           </Button>
@@ -1724,43 +1850,42 @@ const CompanyDashboard = () => {
       {/* View Application Details Dialog */}
       <Dialog open={viewApplicationDetailsOpen} onClose={() => setViewApplicationDetailsOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
-          Application Details
+          <Typography variant="h6" color={COLORS.black}>Application Details</Typography>
         </DialogTitle>
         <DialogContent>
           {selectedApplication && (
             <Grid container spacing={3}>
               <Grid item xs={12}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-                  <Avatar sx={{ width: 60, height: 60, bgcolor: 'primary.main' }}>
+                  <Avatar sx={{ width: 60, height: 60, bgcolor: COLORS.primary }}>
                     {selectedApplication.studentName?.charAt(0)}
                   </Avatar>
                   <Box>
-                    <Typography variant="h6">{selectedApplication.studentName}</Typography>
-                    <Typography color="textSecondary">{selectedApplication.studentEmail}</Typography>
+                    <Typography variant="h6" color={COLORS.black}>{selectedApplication.studentName}</Typography>
+                    <Typography color={COLORS.darkGray}>{selectedApplication.studentEmail}</Typography>
                   </Box>
                 </Box>
               </Grid>
               <Grid item xs={12} sm={6}>
-                <Typography variant="h6" gutterBottom>Applicant Information</Typography>
-                <Typography><strong>Name:</strong> {selectedApplication.studentName}</Typography>
-                <Typography><strong>Email:</strong> {selectedApplication.studentEmail}</Typography>
-                <Typography><strong>Phone:</strong> {selectedApplication.studentPhone || 'Not provided'}</Typography>
+                <Typography variant="h6" gutterBottom color={COLORS.black}>Applicant Information</Typography>
+                <Typography color={COLORS.black}><strong>Name:</strong> {selectedApplication.studentName}</Typography>
+                <Typography color={COLORS.black}><strong>Email:</strong> {selectedApplication.studentEmail}</Typography>
+                <Typography color={COLORS.black}><strong>Phone:</strong> {selectedApplication.studentPhone || 'Not provided'}</Typography>
               </Grid>
               <Grid item xs={12} sm={6}>
-                <Typography variant="h6" gutterBottom>Job Information</Typography>
-                <Typography><strong>Position:</strong> {selectedApplication.jobTitle}</Typography>
-                <Typography><strong>Applied:</strong> {
+                <Typography variant="h6" gutterBottom color={COLORS.black}>Job Information</Typography>
+                <Typography color={COLORS.black}><strong>Position:</strong> {selectedApplication.jobTitle}</Typography>
+                <Typography color={COLORS.black}><strong>Applied:</strong> {
                   selectedApplication.appliedAt?.toDate ? 
                     selectedApplication.appliedAt.toDate().toLocaleDateString() :
                     new Date(selectedApplication.appliedAt).toLocaleDateString()
                 }</Typography>
-                <Typography><strong>Status:</strong> 
+                <Typography color={COLORS.black}><strong>Status:</strong> 
                   <Chip 
                     label={selectedApplication.status} 
                     color={getStatusColor(selectedApplication.status)}
                     size="small"
                     sx={{ ml: 1 }}
-                    icon={getStatusIcon(selectedApplication.status)}
                   />
                 </Typography>
               </Grid>
@@ -1768,7 +1893,7 @@ const CompanyDashboard = () => {
                 <Divider />
               </Grid>
               <Grid item xs={12}>
-                <Typography variant="h6" gutterBottom>Qualifications</Typography>
+                <Typography variant="h6" gutterBottom color={COLORS.black}>Qualifications</Typography>
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                   {selectedApplication.gpa && (
                     <Chip label={`GPA: ${selectedApplication.gpa}`} color="primary" />
@@ -1788,19 +1913,17 @@ const CompanyDashboard = () => {
                 </Box>
               </Grid>
               <Grid item xs={12}>
-                <Typography variant="h6" gutterBottom>Application Status</Typography>
+                <Typography variant="h6" gutterBottom color={COLORS.black}>Application Status</Typography>
                 <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
                   <Chip 
                     label={selectedApplication.status} 
                     color={getStatusColor(selectedApplication.status)}
                     size="medium"
-                    icon={getStatusIcon(selectedApplication.status)}
                   />
                   <Button 
                     size="small" 
                     variant="outlined" 
                     color="warning"
-                    startIcon={<PendingActions />}
                     onClick={() => updateApplicationStatus(selectedApplication.id, 'review')}
                   >
                     Mark for Review
@@ -1809,7 +1932,6 @@ const CompanyDashboard = () => {
                     size="small" 
                     variant="outlined" 
                     color="info"
-                    startIcon={<Schedule />}
                     onClick={() => updateApplicationStatus(selectedApplication.id, 'interview')}
                   >
                     Schedule Interview
@@ -1818,7 +1940,6 @@ const CompanyDashboard = () => {
                     size="small" 
                     variant="outlined" 
                     color="success"
-                    startIcon={<ThumbUp />}
                     onClick={() => updateApplicationStatus(selectedApplication.id, 'approved')}
                   >
                     Approve
@@ -1827,11 +1948,20 @@ const CompanyDashboard = () => {
                     size="small" 
                     variant="outlined" 
                     color="error"
-                    startIcon={<ThumbDown />}
                     onClick={() => updateApplicationStatus(selectedApplication.id, 'rejected')}
                   >
                     Reject
                   </Button>
+                  {(selectedApplication.status === 'approved' || selectedApplication.status === 'hired') && (
+                    <Button 
+                      size="small" 
+                      variant="outlined" 
+                      color="error"
+                      onClick={() => handleStudentRejection(selectedApplication.id)}
+                    >
+                      Student Rejected
+                    </Button>
+                  )}
                 </Box>
               </Grid>
             </Grid>
@@ -1850,65 +1980,43 @@ const CompanyDashboard = () => {
       >
         <MenuItem 
           onClick={() => updateApplicationStatus(selectedAppForAction?.id, 'review')}
-          sx={{ color: 'warning.main' }}
+          sx={{ color: COLORS.warning }}
         >
-          <ListItemIcon>
-            <PendingActions color="warning" />
-          </ListItemIcon>
           <ListItemText>Mark for Review</ListItemText>
         </MenuItem>
         <MenuItem 
           onClick={() => updateApplicationStatus(selectedAppForAction?.id, 'interview')}
-          sx={{ color: 'info.main' }}
+          sx={{ color: COLORS.info }}
         >
-          <ListItemIcon>
-            <Schedule color="info" />
-          </ListItemIcon>
           <ListItemText>Schedule Interview</ListItemText>
         </MenuItem>
         <MenuItem 
           onClick={() => updateApplicationStatus(selectedAppForAction?.id, 'approved')}
-          sx={{ color: 'success.main' }}
+          sx={{ color: COLORS.success }}
         >
-          <ListItemIcon>
-            <ThumbUp color="success" />
-          </ListItemIcon>
           <ListItemText>Approve Application</ListItemText>
         </MenuItem>
         <MenuItem 
           onClick={() => updateApplicationStatus(selectedAppForAction?.id, 'hired')}
-          sx={{ color: 'success.main' }}
+          sx={{ color: COLORS.success }}
         >
-          <ListItemIcon>
-            <HowToReg color="success" />
-          </ListItemIcon>
           <ListItemText>Mark as Hired</ListItemText>
         </MenuItem>
         <MenuItem 
           onClick={() => updateApplicationStatus(selectedAppForAction?.id, 'rejected')}
-          sx={{ color: 'error.main' }}
+          sx={{ color: COLORS.error }}
         >
-          <ListItemIcon>
-            <ThumbDown color="error" />
-          </ListItemIcon>
           <ListItemText>Reject Application</ListItemText>
         </MenuItem>
+        {(selectedAppForAction?.status === 'approved' || selectedAppForAction?.status === 'hired') && (
+          <MenuItem 
+            onClick={() => handleStudentRejection(selectedAppForAction?.id)}
+            sx={{ color: COLORS.error }}
+          >
+            <ListItemText>Student Rejected Offer</ListItemText>
+          </MenuItem>
+        )}
       </Menu>
-
-      {/* Floating Action Button for Quick Job Post */}
-      <Fab 
-        color="primary" 
-        aria-label="add job"
-        onClick={() => setAddJobOpen(true)}
-        sx={{
-          position: 'fixed',
-          bottom: 24,
-          right: 24,
-          background: 'linear-gradient(135deg, #f39c12, #e74c3c)'
-        }}
-      >
-        <Add />
-      </Fab>
     </Container>
   );
 };

@@ -9,7 +9,6 @@ import {
   Box,
   Chip 
 } from '@mui/material';
-import { Login } from '@mui/icons-material';
 
 const NavigationBar = () => {
   const navigate = useNavigate();
@@ -28,16 +27,16 @@ const NavigationBar = () => {
     const colors = {
       admin: 'error',
       institute: 'success', 
-      student: 'primary',
+      student: 'secondary',
       company: 'warning'
     };
     return colors[role] || 'default';
   };
 
   return (
-    <AppBar position="static" className="navbar">
+    <AppBar position="static" sx={{ backgroundColor: '#2c3e50', color: 'white', boxShadow: 1 }}>
       <Toolbar>
-        <Typography variant="h6" sx={{ flexGrow: 1 }} className="navbar-brand">
+        <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 'bold', color: 'white' }}>
           Career Guidance Platform
         </Typography>
         
@@ -47,15 +46,14 @@ const NavigationBar = () => {
               <Button 
                 color="inherit" 
                 onClick={() => navigate('/select-role')}
-                className="nav-button"
+                sx={{ color: 'white' }}
               >
                 Home
               </Button>
               <Button 
                 color="inherit" 
-                startIcon={<Login />}
                 onClick={() => navigate('/login')}
-                className="nav-button"
+                sx={{ color: 'white' }}
               >
                 Sign In
               </Button>
@@ -74,14 +72,14 @@ const NavigationBar = () => {
               <Button 
                 color="inherit" 
                 onClick={() => navigate(`/${profile?.role || 'dashboard'}`)}
-                className="nav-button"
+                sx={{ color: 'white' }}
               >
                 Dashboard
               </Button>
               <Button 
                 color="inherit" 
                 onClick={handleLogout}
-                className="nav-button"
+                sx={{ color: 'white' }}
               >
                 Logout
               </Button>

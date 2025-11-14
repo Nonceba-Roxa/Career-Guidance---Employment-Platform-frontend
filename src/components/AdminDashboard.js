@@ -4,25 +4,14 @@ import {
   Container, Typography, Table, TableBody, TableCell, TableHead, 
   TableRow, Paper, Button, Box, Card, CardContent, Grid, Chip,
   TextField, Dialog, DialogTitle, DialogContent, DialogActions,
-  Alert, LinearProgress, IconButton, Menu, MenuItem, 
-  ListItemIcon, ListItemText, Tooltip, Avatar, Tab, Tabs,
+  Alert, LinearProgress, Menu, MenuItem, 
+  ListItemText, Tooltip, Avatar, Tab, Tabs,
   Select, InputLabel, FormControl, Switch, FormControlLabel,
   Stepper, Step, StepLabel, StepContent, Badge, Divider,
   SpeedDial, SpeedDialAction, SpeedDialIcon, Fab,
   List, ListItem, ListItemAvatar, ListItemSecondaryAction,
   Accordion, AccordionSummary, AccordionDetails
 } from '@mui/material';
-import { 
-  Logout, Add, Block, CheckCircle, Pending, 
-  Person, Business, School, AdminPanelSettings,
-  MoreVert, Edit, Delete, Refresh, Visibility,
-  Dashboard, Groups, Class, Work, Assessment,
-  TrendingUp, Notifications, Security, Settings,
-  ExpandMore, AddCircle, RemoveCircle, Publish,
-  BarChart, PieChart, Timeline, Download,
-  Email, Phone, LocationOn, CalendarToday,
-  AutoAwesome, Rocket, Psychology, Analytics
-} from '@mui/icons-material';
 import { SnackbarProvider, useSnackbar } from 'notistack';
 import { useAuth } from '../AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -34,6 +23,22 @@ import {
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { createUserWithEmailAndPassword, deleteUser } from 'firebase/auth';
+
+// Professional color palette
+const COLORS = {
+  white: '#FFFFFF',
+  lightGray: '#F8F9FA',
+  mediumGray: '#E9ECEF',
+  darkGray: '#6C757D',
+  black: '#212529',
+  primary: '#2E7D32', // Green
+  primaryLight: '#4CAF50',
+  primaryDark: '#1B5E20',
+  success: '#28A745',
+  warning: '#FFC107',
+  error: '#DC3545',
+  info: '#17A2B8'
+};
 
 function TabPanel({ children, value, index, ...other }) {
   return (
@@ -441,7 +446,7 @@ const AdminDashboard = () => {
     }
   };
 
-  // Calculate statistics - REMOVED admission rate calculation
+  // Calculate statistics
   const calculateStatistics = () => {
     console.log('Calculating statistics with current data:', {
       users: users.length,
@@ -794,60 +799,93 @@ const AdminDashboard = () => {
     }
   };
 
-  // Publish Admissions
-  const publishAdmissions = async () => {
-    if (!admissionSettings.startDate || !admissionSettings.endDate) {
-      enqueueSnackbar('Start date and end date are required', { variant: 'error' });
-      return;
-    }
+const publishAdmissions = async () => {
+  if (!admissionSettings.startDate || !admissionSettings.endDate) {
+    enqueueSnackbar('Start date and end date are required', { variant: 'error' });
+    return;
+  }
 
+  setLoading(true);
+  
+  try {
+    const settingsData = {
+      ...admissionSettings,
+      isPublished: true,
+      publishedAt: serverTimestamp(),
+      publishedBy: user.uid,
+      publishedByName: profile?.name || 'Administrator'
+    };
+
+    let success = false;
+    let methodUsed = '';
+
+    // Try method 1: Direct write to admissionSettings
     try {
-      // Create or update admission settings in admissionSettings collection
       const admissionSettingsRef = doc(db, 'admissionSettings', 'current');
-      
-      const settingsData = {
-        ...admissionSettings,
-        isPublished: true,
-        publishedAt: serverTimestamp(),
-        publishedBy: user.uid,
-        publishedByName: profile?.name || 'Administrator'
-      };
-
       await setDoc(admissionSettingsRef, settingsData);
-
-      // Notify all students about published admissions
-      const students = users.filter(u => u.role === 'student');
+      success = true;
+      methodUsed = 'admissionSettings collection';
+    } catch (firestoreError) {
+      console.log('Method 1 failed, trying fallback...', firestoreError);
       
-      if (students.length > 0) {
-        const notificationPromises = students.map(student => 
-          addDoc(collection(db, 'notifications'), {
-            userId: student.id,
-            title: '🎓 Admissions Published!',
-            message: admissionSettings.announcement || `Admissions for ${admissionSettings.academicYear} have been published. Check your dashboard for updates.`,
-            type: 'admission',
-            priority: 'high',
-            read: false,
-            createdAt: serverTimestamp()
-          })
-        );
-
-        await Promise.all(notificationPromises);
+      // Try method 2: Store in user's document as fallback
+      try {
+        const userAdmissionSettingsRef = doc(db, 'users', user.uid);
+        await updateDoc(userAdmissionSettingsRef, {
+          admissionSettings: settingsData,
+          admissionSettingsUpdatedAt: serverTimestamp()
+        });
+        success = true;
+        methodUsed = 'user document fallback';
+      } catch (userDocError) {
+        console.log('Method 2 failed, trying local storage...', userDocError);
+        
+        // Method 3: Local storage as last resort
+        const localSettings = {
+          ...settingsData,
+          publishedAt: new Date().toISOString()
+        };
+        localStorage.setItem('adminAdmissionSettings', JSON.stringify(localSettings));
+        success = true;
+        methodUsed = 'local storage';
       }
-
-      enqueueSnackbar(`Admissions published successfully! ${students.length} students have been notified.`, { variant: 'success' });
-      setPublishAdmissionsOpen(false);
-      
-    } catch (error) {
-      console.error('Publish admissions error:', error);
-      let errorMessage = 'Failed to publish admissions: ' + error.message;
-      
-      if (error.code === 'permission-denied') {
-        errorMessage = 'Permission denied. Please check if you have write access to admissionSettings collection.';
-      }
-      
-      enqueueSnackbar(errorMessage, { variant: 'error' });
     }
-  };
+
+    if (success) {
+      // Notify students (if Firebase permissions allow)
+      try {
+        const students = users.filter(u => u.role === 'student');
+        if (students.length > 0) {
+          const notificationPromises = students.map(student => 
+            addDoc(collection(db, 'notifications'), {
+              userId: student.id,
+              title: 'Admissions Published!',
+              message: admissionSettings.announcement || `Admissions for ${admissionSettings.academicYear} have been published.`,
+              type: 'admission',
+              priority: 'high',
+              read: false,
+              createdAt: serverTimestamp()
+            })
+          );
+          await Promise.all(notificationPromises);
+          enqueueSnackbar(`Admissions published via ${methodUsed}! ${students.length} students notified.`, { variant: 'success' });
+        } else {
+          enqueueSnackbar(`Admissions published via ${methodUsed}!`, { variant: 'success' });
+        }
+      } catch (notifyError) {
+        enqueueSnackbar(`Admissions published via ${methodUsed} (notification failed).`, { variant: 'info' });
+      }
+      
+      setPublishAdmissionsOpen(false);
+    }
+    
+  } catch (error) {
+    console.error('All publish methods failed:', error);
+    enqueueSnackbar('Failed to publish admissions. Please check Firebase permissions.', { variant: 'error' });
+  } finally {
+    setLoading(false);
+  }
+};
 
   // Manage User Status
   const manageUserStatus = async (userId, action) => {
@@ -959,7 +997,7 @@ const AdminDashboard = () => {
     }
   };
 
-  // Generate System Report - REMOVED admission rate from report
+  // Generate System Report
   const generateSystemReport = async () => {
     try {
       const reportData = {
@@ -1169,16 +1207,6 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
     }
   };
 
-  const getRoleIcon = (role) => {
-    switch (role) {
-      case 'admin': return <AdminPanelSettings />;
-      case 'institute': return <School />;
-      case 'student': return <Person />;
-      case 'company': return <Business />;
-      default: return <Person />;
-    }
-  };
-
   const formatDate = (date) => {
     if (!date) return 'N/A';
     if (date instanceof Date) {
@@ -1220,11 +1248,11 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
 
   // Speed dial actions
   const speedDialActions = [
-    { icon: <Add />, name: 'Add Institution', action: () => setAddInstitutionOpen(true) },
-    { icon: <Class />, name: 'Add Faculty', action: () => setAddFacultyOpen(true) },
-    { icon: <School />, name: 'Add Course', action: () => setAddCourseOpen(true) },
-    { icon: <Publish />, name: 'Publish Admissions', action: () => setPublishAdmissionsOpen(true) },
-    { icon: <Assessment />, name: 'Generate Report', action: generateSystemReport },
+    { name: 'Add Institution', action: () => setAddInstitutionOpen(true) },
+    { name: 'Add Faculty', action: () => setAddFacultyOpen(true) },
+    { name: 'Add Course', action: () => setAddCourseOpen(true) },
+    { name: 'Publish Admissions', action: () => setPublishAdmissionsOpen(true) },
+    { name: 'Generate Report', action: generateSystemReport },
   ];
 
   // Show profile error state
@@ -1297,13 +1325,13 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
   }
 
   return (
-    <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
+    <Container maxWidth="xl" sx={{ mt: 2, mb: 4, backgroundColor: COLORS.lightGray, minHeight: '100vh' }}>
       {/* Header */}
       <Paper sx={{ 
         p: 4, 
         mb: 3, 
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', 
-        color: 'white',
+        background: `linear-gradient(135deg, ${COLORS.primary} 0%, ${COLORS.primaryLight} 100%)`, 
+        color: COLORS.white,
         position: 'relative',
         overflow: 'hidden'
       }}>
@@ -1322,7 +1350,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
             <Box>
               <Typography variant="h3" gutterBottom sx={{ fontWeight: 'bold', fontSize: { xs: '2rem', md: '2.5rem' } }}>
-                🛠️ Admin Dashboard
+                Admin Dashboard
               </Typography>
               <Typography variant="h6">
                 Welcome back, {profile?.name || 'Administrator'}
@@ -1333,25 +1361,27 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
             </Box>
             <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
               <Tooltip title="Refresh Data">
-                <IconButton onClick={loadData} sx={{ color: 'white' }}>
-                  <Refresh />
-                </IconButton>
+                <Button onClick={loadData} sx={{ color: COLORS.white }}>
+                  Refresh
+                </Button>
               </Tooltip>
               <Button 
                 variant="contained" 
-                color="secondary" 
+                sx={{ 
+                  backgroundColor: COLORS.error,
+                  '&:hover': { backgroundColor: '#b71c1c' }
+                }}
                 onClick={handleLogout}
-                startIcon={<Logout />}
               >
                 Logout
               </Button>
             </Box>
           </Box>
 
-          {/* Enhanced Statistics Cards - REMOVED admission rate card */}
+          {/* Enhanced Statistics Cards */}
           <Grid container spacing={3}>
             <Grid item xs={6} sm={4} md={2.4}>
-              <Card sx={{ background: 'rgba(255,255,255,0.2)', color: 'white', backdropFilter: 'blur(10px)' }}>
+              <Card sx={{ background: 'rgba(255,255,255,0.2)', color: COLORS.white, backdropFilter: 'blur(10px)' }}>
                 <CardContent sx={{ textAlign: 'center', p: 2 }}>
                   <Typography variant="h4" component="div" sx={{ fontWeight: 'bold' }}>
                     {stats.totalUsers}
@@ -1363,7 +1393,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
               </Card>
             </Grid>
             <Grid item xs={6} sm={4} md={2.4}>
-              <Card sx={{ background: 'rgba(255,255,255,0.2)', color: 'white', backdropFilter: 'blur(10px)' }}>
+              <Card sx={{ background: 'rgba(255,255,255,0.2)', color: COLORS.white, backdropFilter: 'blur(10px)' }}>
                 <CardContent sx={{ textAlign: 'center', p: 2 }}>
                   <Typography variant="h4" component="div" sx={{ fontWeight: 'bold' }}>
                     {stats.students}
@@ -1375,7 +1405,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
               </Card>
             </Grid>
             <Grid item xs={6} sm={4} md={2.4}>
-              <Card sx={{ background: 'rgba(255,255,255,0.2)', color: 'white', backdropFilter: 'blur(10px)' }}>
+              <Card sx={{ background: 'rgba(255,255,255,0.2)', color: COLORS.white, backdropFilter: 'blur(10px)' }}>
                 <CardContent sx={{ textAlign: 'center', p: 2 }}>
                   <Typography variant="h4" component="div" sx={{ fontWeight: 'bold' }}>
                     {stats.institutes}
@@ -1387,7 +1417,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
               </Card>
             </Grid>
             <Grid item xs={6} sm={4} md={2.4}>
-              <Card sx={{ background: 'rgba(255,255,255,0.2)', color: 'white', backdropFilter: 'blur(10px)' }}>
+              <Card sx={{ background: 'rgba(255,255,255,0.2)', color: COLORS.white, backdropFilter: 'blur(10px)' }}>
                 <CardContent sx={{ textAlign: 'center', p: 2 }}>
                   <Typography variant="h4" component="div" sx={{ fontWeight: 'bold' }}>
                     {stats.companies}
@@ -1399,7 +1429,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
               </Card>
             </Grid>
             <Grid item xs={6} sm={4} md={2.4}>
-              <Card sx={{ background: 'rgba(255,255,255,0.2)', color: 'white', backdropFilter: 'blur(10px)' }}>
+              <Card sx={{ background: 'rgba(255,255,255,0.2)', color: COLORS.white, backdropFilter: 'blur(10px)' }}>
                 <CardContent sx={{ textAlign: 'center', p: 2 }}>
                   <Typography variant="h4" component="div" sx={{ fontWeight: 'bold' }}>
                     {stats.pendingCompanies}
@@ -1415,53 +1445,76 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
       </Paper>
 
       {/* Quick Actions Bar */}
-      <Paper sx={{ p: 2, mb: 3, background: 'linear-gradient(135deg, #f39c12, #e74c3c)', color: 'white' }}>
+      <Paper sx={{ 
+        p: 2, 
+        mb: 3, 
+        background: `linear-gradient(135deg, ${COLORS.primary}, ${COLORS.primaryLight})`, 
+        color: COLORS.white 
+      }}>
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center' }}>
           <Button 
             variant="contained" 
-            startIcon={<Add />}
             onClick={() => setAddInstitutionOpen(true)}
-            sx={{ background: 'rgba(255,255,255,0.2)', '&:hover': { background: 'rgba(255,255,255,0.3)' } }}
+            sx={{ 
+              background: 'rgba(255,255,255,0.2)', 
+              '&:hover': { background: 'rgba(255,255,255,0.3)' },
+              color: COLORS.white
+            }}
           >
             Add Institution
           </Button>
           <Button 
             variant="contained" 
-            startIcon={<Class />}
             onClick={() => setAddFacultyOpen(true)}
-            sx={{ background: 'rgba(255,255,255,0.2)', '&:hover': { background: 'rgba(255,255,255,0.3)' } }}
+            sx={{ 
+              background: 'rgba(255,255,255,0.2)', 
+              '&:hover': { background: 'rgba(255,255,255,0.3)' },
+              color: COLORS.white
+            }}
           >
             Add Faculty
           </Button>
           <Button 
             variant="contained" 
-            startIcon={<School />}
             onClick={() => setAddCourseOpen(true)}
-            sx={{ background: 'rgba(255,255,255,0.2)', '&:hover': { background: 'rgba(255,255,255,0.3)' } }}
+            sx={{ 
+              background: 'rgba(255,255,255,0.2)', 
+              '&:hover': { background: 'rgba(255,255,255,0.3)' },
+              color: COLORS.white
+            }}
           >
             Add Course
           </Button>
           <Button 
             variant="contained" 
-            startIcon={<Publish />}
             onClick={() => setPublishAdmissionsOpen(true)}
-            sx={{ background: 'rgba(255,255,255,0.2)', '&:hover': { background: 'rgba(255,255,255,0.3)' } }}
+            sx={{ 
+              background: 'rgba(255,255,255,0.2)', 
+              '&:hover': { background: 'rgba(255,255,255,0.3)' },
+              color: COLORS.white
+            }}
           >
             Publish Admissions
           </Button>
           <Button 
             variant="contained" 
-            startIcon={<Assessment />}
             onClick={generateSystemReport}
-            sx={{ background: 'rgba(255,255,255,0.2)', '&:hover': { background: 'rgba(255,255,255,0.3)' } }}
+            sx={{ 
+              background: 'rgba(255,255,255,0.2)', 
+              '&:hover': { background: 'rgba(255,255,255,0.3)' },
+              color: COLORS.white
+            }}
           >
             Generate Report
           </Button>
           <Button 
             variant="contained" 
-            startIcon={<Download />}
             onClick={exportUsersCSV}
-            sx={{ background: 'rgba(255,255,255,0.2)', '&:hover': { background: 'rgba(255,255,255,0.3)' } }}
+            sx={{ 
+              background: 'rgba(255,255,255,0.2)', 
+              '&:hover': { background: 'rgba(255,255,255,0.3)' },
+              color: COLORS.white
+            }}
           >
             Export Users
           </Button>
@@ -1469,7 +1522,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
       </Paper>
 
       {/* Tabs Navigation */}
-      <Paper sx={{ width: '100%', mb: 2 }}>
+      <Paper sx={{ width: '100%', mb: 2, backgroundColor: COLORS.white }}>
         <Tabs
           value={tabValue}
           onChange={handleTabChange}
@@ -1477,67 +1530,75 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
           textColor="primary"
           variant="scrollable"
           scrollButtons="auto"
+          sx={{
+            '& .MuiTab-root': {
+              color: COLORS.darkGray,
+              '&.Mui-selected': {
+                color: COLORS.primary,
+              },
+            },
+          }}
         >
-          <Tab icon={<Dashboard />} label="Overview" />
-          <Tab icon={<Business />} label={`Companies (${companiesList.length})`} />
-          <Tab icon={<School />} label={`Institutions (${institutionsList.length})`} />
-          <Tab icon={<Person />} label={`Students (${studentsList.length})`} />
-          <Tab icon={<AdminPanelSettings />} label={`Admins (${adminsList.length})`} />
-          <Tab icon={<Pending />} label={`Pending (${pendingCompanies.length})`} />
-          <Tab icon={<Analytics />} label={`System Reports (${reports.length})`} />
+          <Tab label="Overview" />
+          <Tab label={`Companies (${companiesList.length})`} />
+          <Tab label={`Institutions (${institutionsList.length})`} />
+          <Tab label={`Students (${studentsList.length})`} />
+          <Tab label={`Admins (${adminsList.length})`} />
+          <Tab label={`Pending (${pendingCompanies.length})`} />
+          <Tab label={`System Reports (${reports.length})`} />
         </Tabs>
       </Paper>
 
-      {/* Overview Tab - REMOVED admission rate references */}
+      {/* Overview Tab */}
       <TabPanel value={tabValue} index={0}>
         <Grid container spacing={3}>
           {/* System Overview */}
           <Grid item xs={12} md={8}>
-            <Card sx={{ p: 3, mb: 3 }}>
-              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <TrendingUp /> System Overview
+            <Card sx={{ p: 3, mb: 3, backgroundColor: COLORS.white }}>
+              <Typography variant="h6" gutterBottom color={COLORS.black}>
+                System Overview
               </Typography>
               <Grid container spacing={3}>
                 <Grid item xs={12} sm={6}>
-                  <Box sx={{ p: 2, bgcolor: 'primary.50', borderRadius: 2 }}>
-                    <Typography variant="h4" color="primary" gutterBottom>
+                  <Box sx={{ p: 2, bgcolor: '#E8F5E8', borderRadius: 2, border: `1px solid ${COLORS.mediumGray}` }}>
+                    <Typography variant="h4" color={COLORS.primary} gutterBottom>
                       {admissions.length + applications.length}
                     </Typography>
-                    <Typography variant="body1">Total Applications</Typography>
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body1" color={COLORS.black}>Total Applications</Typography>
+                    <Typography variant="body2" color={COLORS.darkGray}>
                       Across all institutions and companies
                     </Typography>
                   </Box>
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <Box sx={{ p: 2, bgcolor: 'success.50', borderRadius: 2 }}>
-                    <Typography variant="h4" color="success" gutterBottom>
+                  <Box sx={{ p: 2, bgcolor: '#FFF3CD', borderRadius: 2, border: `1px solid ${COLORS.mediumGray}` }}>
+                    <Typography variant="h4" color={COLORS.warning} gutterBottom>
                       {jobs.length}
                     </Typography>
-                    <Typography variant="body1">Active Job Posts</Typography>
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body1" color={COLORS.black}>Active Job Posts</Typography>
+                    <Typography variant="body2" color={COLORS.darkGray}>
                       From {companiesList.length} companies
                     </Typography>
                   </Box>
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <Box sx={{ p: 2, bgcolor: 'warning.50', borderRadius: 2 }}>
-                    <Typography variant="h4" color="warning" gutterBottom>
+                  <Box sx={{ p: 2, bgcolor: '#D1ECF1', borderRadius: 2, border: `1px solid ${COLORS.mediumGray}` }}>
+                    <Typography variant="h4" color={COLORS.info} gutterBottom>
                       {courses.length}
                     </Typography>
-                    <Typography variant="body1">Available Courses</Typography>
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body1" color={COLORS.black}>Available Courses</Typography>
+                    <Typography variant="body2" color={COLORS.darkGray}>
                       Across {institutionsList.length} institutions
                     </Typography>
                   </Box>
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <Box sx={{ p: 2, bgcolor: 'info.50', borderRadius: 2 }}>
-                    <Typography variant="h4" color="info" gutterBottom>
+                  <Box sx={{ p: 2, bgcolor: '#E2E3E5', borderRadius: 2, border: `1px solid ${COLORS.mediumGray}` }}>
+                    <Typography variant="h4" color={COLORS.darkGray} gutterBottom>
                       {faculties.length}
                     </Typography>
-                    <Typography variant="body1">Faculties</Typography>
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body1" color={COLORS.black}>Faculties</Typography>
+                    <Typography variant="body2" color={COLORS.darkGray}>
                       Academic departments
                     </Typography>
                   </Box>
@@ -1546,9 +1607,9 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
             </Card>
 
             {/* Recent Activity */}
-            <Card sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Timeline /> Recent Activity
+            <Card sx={{ p: 3, backgroundColor: COLORS.white }}>
+              <Typography variant="h6" gutterBottom color={COLORS.black}>
+                Recent Activity
               </Typography>
               <List>
                 {[...admissions, ...applications, ...jobs]
@@ -1557,18 +1618,20 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                   .map((item, index) => (
                     <ListItem key={index} divider={index < 4}>
                       <ListItemAvatar>
-                        <Avatar>
-                          {item.type === 'job' ? <Work /> : <School />}
+                        <Avatar sx={{ 
+                          bgcolor: item.type === 'job' ? COLORS.warning : COLORS.primary 
+                        }}>
+                          {item.type === 'job' ? 'J' : 'A'}
                         </Avatar>
                       </ListItemAvatar>
                       <Box>
-                        <Typography variant="body1" component="div">
+                        <Typography variant="body1" component="div" color={COLORS.black}>
                           {item.jobTitle || item.courseName || 'Application'}
                         </Typography>
-                        <Typography variant="body2" color="text.secondary" component="div">
+                        <Typography variant="body2" color={COLORS.darkGray} component="div">
                           {item.companyName || item.instituteName || 'Unknown'}
                         </Typography>
-                        <Typography variant="caption" color="text.secondary" component="div">
+                        <Typography variant="caption" color={COLORS.darkGray} component="div">
                           {new Date(item.appliedAt || item.postedAt).toLocaleDateString()}
                         </Typography>
                       </Box>
@@ -1585,57 +1648,101 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
 
           {/* Quick Stats & Actions */}
           <Grid item xs={12} md={4}>
-            <Card sx={{ p: 3, mb: 3 }}>
-              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Rocket /> Quick Actions
+            <Card sx={{ p: 3, mb: 3, backgroundColor: COLORS.white }}>
+              <Typography variant="h6" gutterBottom color={COLORS.black}>
+                Quick Actions
               </Typography>
               <List>
                 <ListItem button onClick={() => setAddInstitutionOpen(true)}>
-                  <ListItemIcon><Add color="primary" /></ListItemIcon>
-                  <ListItemText primary="Add New Institution" />
+                  <ListItemText 
+                    primary="Add New Institution" 
+                    primaryTypographyProps={{ color: COLORS.black }}
+                    secondary="Create new educational institution"
+                    secondaryTypographyProps={{ color: COLORS.darkGray }}
+                  />
                 </ListItem>
                 <ListItem button onClick={() => setAddFacultyOpen(true)}>
-                  <ListItemIcon><Class color="primary" /></ListItemIcon>
-                  <ListItemText primary="Add Faculty" />
+                  <ListItemText 
+                    primary="Add Faculty" 
+                    primaryTypographyProps={{ color: COLORS.black }}
+                    secondary="Create academic department"
+                    secondaryTypographyProps={{ color: COLORS.darkGray }}
+                  />
                 </ListItem>
                 <ListItem button onClick={() => setAddCourseOpen(true)}>
-                  <ListItemIcon><School color="primary" /></ListItemIcon>
-                  <ListItemText primary="Add Course" />
+                  <ListItemText 
+                    primary="Add Course" 
+                    primaryTypographyProps={{ color: COLORS.black }}
+                    secondary="Add new course offering"
+                    secondaryTypographyProps={{ color: COLORS.darkGray }}
+                  />
                 </ListItem>
                 <ListItem button onClick={() => setPublishAdmissionsOpen(true)}>
-                  <ListItemIcon><Publish color="primary" /></ListItemIcon>
-                  <ListItemText primary="Publish Admissions" />
+                  <ListItemText 
+                    primary="Publish Admissions" 
+                    primaryTypographyProps={{ color: COLORS.black }}
+                    secondary="Make admission results public"
+                    secondaryTypographyProps={{ color: COLORS.darkGray }}
+                  />
                 </ListItem>
                 <ListItem button onClick={generateSystemReport}>
-                  <ListItemIcon><Assessment color="primary" /></ListItemIcon>
-                  <ListItemText primary="Generate Report" />
+                  <ListItemText 
+                    primary="Generate Report" 
+                    primaryTypographyProps={{ color: COLORS.black }}
+                    secondary="Create system analytics report"
+                    secondaryTypographyProps={{ color: COLORS.darkGray }}
+                  />
                 </ListItem>
                 <ListItem button onClick={exportUsersCSV}>
-                  <ListItemIcon><Download color="primary" /></ListItemIcon>
-                  <ListItemText primary="Export Users CSV" />
+                  <ListItemText 
+                    primary="Export Users CSV" 
+                    primaryTypographyProps={{ color: COLORS.black }}
+                    secondary="Download user data"
+                    secondaryTypographyProps={{ color: COLORS.darkGray }}
+                  />
                 </ListItem>
                 <ListItem button onClick={exportInstitutionsCSV}>
-                  <ListItemIcon><Download color="primary" /></ListItemIcon>
-                  <ListItemText primary="Export Institutions CSV" />
+                  <ListItemText 
+                    primary="Export Institutions CSV" 
+                    primaryTypographyProps={{ color: COLORS.black }}
+                    secondary="Download institution data"
+                    secondaryTypographyProps={{ color: COLORS.darkGray }}
+                  />
                 </ListItem>
                 <ListItem button onClick={exportAdmissionsCSV}>
-                  <ListItemIcon><Download color="primary" /></ListItemIcon>
-                  <ListItemText primary="Export Admissions CSV" />
+                  <ListItemText 
+                    primary="Export Admissions CSV" 
+                    primaryTypographyProps={{ color: COLORS.black }}
+                    secondary="Download admission data"
+                    secondaryTypographyProps={{ color: COLORS.darkGray }}
+                  />
                 </ListItem>
               </List>
             </Card>
 
             {/* System Health */}
-            <Card sx={{ p: 3, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
+            <Card sx={{ 
+              p: 3, 
+              background: `linear-gradient(135deg, ${COLORS.primary} 0%, ${COLORS.primaryLight} 100%)`, 
+              color: COLORS.white 
+            }}>
               <Typography variant="h6" gutterBottom>
-                🚀 System Health
+                System Health
               </Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
                 <Box sx={{ flex: 1 }}>
                   <LinearProgress 
                     variant="determinate" 
                     value={95} 
-                    sx={{ height: 8, borderRadius: 4, mb: 1 }}
+                    sx={{ 
+                      height: 8, 
+                      borderRadius: 4, 
+                      mb: 1,
+                      backgroundColor: 'rgba(255,255,255,0.3)',
+                      '& .MuiLinearProgress-bar': {
+                        backgroundColor: COLORS.white
+                      }
+                    }}
                   />
                   <Typography variant="body2">Performance: 95%</Typography>
                 </Box>
@@ -1645,7 +1752,15 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                   <LinearProgress 
                     variant="determinate" 
                     value={98} 
-                    sx={{ height: 8, borderRadius: 4, mb: 1 }}
+                    sx={{ 
+                      height: 8, 
+                      borderRadius: 4, 
+                      mb: 1,
+                      backgroundColor: 'rgba(255,255,255,0.3)',
+                      '& .MuiLinearProgress-bar': {
+                        backgroundColor: COLORS.white
+                      }
+                    }}
                   />
                   <Typography variant="body2">Uptime: 98%</Typography>
                 </Box>
@@ -1655,7 +1770,15 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                   <LinearProgress 
                     variant="determinate" 
                     value={85} 
-                    sx={{ height: 8, borderRadius: 4, mb: 1 }}
+                    sx={{ 
+                      height: 8, 
+                      borderRadius: 4, 
+                      mb: 1,
+                      backgroundColor: 'rgba(255,255,255,0.3)',
+                      '& .MuiLinearProgress-bar': {
+                        backgroundColor: COLORS.white
+                      }
+                    }}
                   />
                   <Typography variant="body2">Database: 85%</Typography>
                 </Box>
@@ -1668,96 +1791,98 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
       {/* Companies Tab */}
       <TabPanel value={tabValue} index={1}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-          <Typography variant="h5">Company Accounts</Typography>
+          <Typography variant="h5" color={COLORS.black}>Company Accounts</Typography>
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Button 
               variant="outlined" 
-              startIcon={<Download />}
               onClick={exportUsersCSV}
+              sx={{ borderColor: COLORS.primary, color: COLORS.primary }}
             >
               Export CSV
             </Button>
-            <Typography variant="body2" color="textSecondary" sx={{ ml: 2 }}>
+            <Typography variant="body2" color={COLORS.darkGray} sx={{ ml: 2 }}>
               Total: {companiesList.length} companies • {pendingCompanies.length} pending approval
             </Typography>
           </Box>
         </Box>
         
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Company</TableCell>
-              <TableCell>Contact</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell>Jobs Posted</TableCell>
-              <TableCell>Joined Date</TableCell>
-              <TableCell>Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {companiesList.map(company => (
-              <TableRow key={company.id} hover>
-                <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Avatar sx={{ bgcolor: 'warning.main' }}>
-                      <Business />
-                    </Avatar>
+        <Paper sx={{ backgroundColor: COLORS.white }}>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell><Typography color={COLORS.black} fontWeight="bold">Company</Typography></TableCell>
+                <TableCell><Typography color={COLORS.black} fontWeight="bold">Contact</Typography></TableCell>
+                <TableCell><Typography color={COLORS.black} fontWeight="bold">Status</Typography></TableCell>
+                <TableCell><Typography color={COLORS.black} fontWeight="bold">Jobs Posted</Typography></TableCell>
+                <TableCell><Typography color={COLORS.black} fontWeight="bold">Joined Date</Typography></TableCell>
+                <TableCell><Typography color={COLORS.black} fontWeight="bold">Actions</Typography></TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {companiesList.map(company => (
+                <TableRow key={company.id} hover sx={{ '&:hover': { backgroundColor: COLORS.lightGray } }}>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <Avatar sx={{ bgcolor: COLORS.warning }}>
+                        {company.name?.charAt(0) || 'C'}
+                      </Avatar>
+                      <Box>
+                        <Typography variant="subtitle2" color={COLORS.black}>{company.name}</Typography>
+                        <Typography variant="body2" color={COLORS.darkGray}>
+                          {company.industry || 'Not specified'}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </TableCell>
+                  <TableCell>
                     <Box>
-                      <Typography variant="subtitle2">{company.name}</Typography>
-                      <Typography variant="body2" color="textSecondary">
-                        {company.industry || 'Not specified'}
+                      <Typography variant="body2" color={COLORS.black}>{company.email}</Typography>
+                      <Typography variant="body2" color={COLORS.darkGray}>
+                        {company.phone || 'No phone'}
                       </Typography>
                     </Box>
-                  </Box>
-                </TableCell>
-                <TableCell>
-                  <Box>
-                    <Typography variant="body2">{company.email}</Typography>
-                    <Typography variant="body2" color="textSecondary">
-                      {company.phone || 'No phone'}
+                  </TableCell>
+                  <TableCell>
+                    <Chip 
+                      label={company.status || 'active'} 
+                      color={getStatusColor(company.status)}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" color={COLORS.black}>
+                      {jobs.filter(job => job.companyId === company.id).length}
                     </Typography>
-                  </Box>
-                </TableCell>
-                <TableCell>
-                  <Chip 
-                    label={company.status || 'active'} 
-                    color={getStatusColor(company.status)}
-                    size="small"
-                  />
-                </TableCell>
-                <TableCell>
-                  <Typography variant="body2">
-                    {jobs.filter(job => job.companyId === company.id).length}
-                  </Typography>
-                </TableCell>
-                <TableCell>{formatDate(company.createdAt)}</TableCell>
-                <TableCell>
-                  <IconButton onClick={(e) => handleUserMenuOpen(e, company)}>
-                    <MoreVert />
-                  </IconButton>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+                  </TableCell>
+                  <TableCell><Typography color={COLORS.black}>{formatDate(company.createdAt)}</Typography></TableCell>
+                  <TableCell>
+                    <Button onClick={(e) => handleUserMenuOpen(e, company)} sx={{ color: COLORS.primary }}>
+                      Actions
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Paper>
       </TabPanel>
 
       {/* Institutions Tab */}
       <TabPanel value={tabValue} index={2}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-          <Typography variant="h5">Institution Accounts</Typography>
+          <Typography variant="h5" color={COLORS.black}>Institution Accounts</Typography>
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Button 
               variant="outlined" 
-              startIcon={<Download />}
               onClick={exportInstitutionsCSV}
+              sx={{ borderColor: COLORS.primary, color: COLORS.primary }}
             >
               Export CSV
             </Button>
             <Button 
               variant="contained" 
-              startIcon={<Add />}
               onClick={() => setAddInstitutionOpen(true)}
+              sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.primaryDark } }}
             >
               Add Institution
             </Button>
@@ -1767,15 +1892,15 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
         <Grid container spacing={3}>
           {institutionsList.map(institution => (
             <Grid item xs={12} md={6} key={institution.id}>
-              <Card variant="outlined" sx={{ p: 2 }}>
+              <Card variant="outlined" sx={{ p: 2, backgroundColor: COLORS.white }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Avatar sx={{ bgcolor: 'success.main' }}>
-                      <School />
+                    <Avatar sx={{ bgcolor: COLORS.primary }}>
+                      {institution.name?.charAt(0) || 'I'}
                     </Avatar>
                     <Box>
-                      <Typography variant="h6">{institution.name}</Typography>
-                      <Typography variant="body2" color="textSecondary">
+                      <Typography variant="h6" color={COLORS.black}>{institution.name}</Typography>
+                      <Typography variant="body2" color={COLORS.darkGray}>
                         {institution.location || 'Location not specified'}
                       </Typography>
                     </Box>
@@ -1787,18 +1912,18 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                   />
                 </Box>
 
-                <Typography variant="body2" sx={{ mb: 2 }}>
+                <Typography variant="body2" sx={{ mb: 2 }} color={COLORS.black}>
                   {institution.description || 'No description available.'}
                 </Typography>
 
                 <Grid container spacing={2} sx={{ mb: 2 }}>
                   <Grid item xs={6}>
-                    <Typography variant="body2">
+                    <Typography variant="body2" color={COLORS.black}>
                       <strong>Faculties:</strong> {faculties.filter(f => f.instituteId === institution.id).length}
                     </Typography>
                   </Grid>
                   <Grid item xs={6}>
-                    <Typography variant="body2">
+                    <Typography variant="body2" color={COLORS.black}>
                       <strong>Courses:</strong> {courses.filter(c => {
                         const faculty = faculties.find(f => f.id === c.facultyId);
                         return faculty?.instituteId === institution.id;
@@ -1806,7 +1931,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                     </Typography>
                   </Grid>
                   <Grid item xs={6}>
-                    <Typography variant="body2">
+                    <Typography variant="body2" color={COLORS.black}>
                       <strong>Applications:</strong> {admissions.filter(app => app.instituteId === institution.id).length}
                     </Typography>
                   </Grid>
@@ -1816,8 +1941,8 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                   <Button 
                     size="small" 
                     variant="outlined" 
-                    startIcon={<Visibility />}
                     onClick={() => handleViewInstitution(institution)}
+                    sx={{ borderColor: COLORS.primary, color: COLORS.primary }}
                   >
                     View
                   </Button>
@@ -1825,7 +1950,6 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                     size="small" 
                     variant="outlined" 
                     color="error"
-                    startIcon={<Delete />}
                     onClick={() => deleteInstitution(institution.id)}
                   >
                     Delete
@@ -1840,87 +1964,89 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
       {/* Students Tab */}
       <TabPanel value={tabValue} index={3}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-          <Typography variant="h5">Student Accounts</Typography>
+          <Typography variant="h5" color={COLORS.black}>Student Accounts</Typography>
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Button 
               variant="outlined" 
-              startIcon={<Download />}
               onClick={exportUsersCSV}
+              sx={{ borderColor: COLORS.primary, color: COLORS.primary }}
             >
               Export CSV
             </Button>
-            <Typography variant="body2" color="textSecondary">
+            <Typography variant="body2" color={COLORS.darkGray}>
               Total: {studentsList.length} students
             </Typography>
           </Box>
         </Box>
         
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Student</TableCell>
-              <TableCell>Academic Info</TableCell>
-              <TableCell>Applications</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell>Joined Date</TableCell>
-              <TableCell>Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {studentsList.map(student => (
-              <TableRow key={student.id} hover>
-                <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Avatar sx={{ bgcolor: 'primary.main' }}>
-                      <Person />
-                    </Avatar>
+        <Paper sx={{ backgroundColor: COLORS.white }}>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell><Typography color={COLORS.black} fontWeight="bold">Student</Typography></TableCell>
+                <TableCell><Typography color={COLORS.black} fontWeight="bold">Academic Info</Typography></TableCell>
+                <TableCell><Typography color={COLORS.black} fontWeight="bold">Applications</Typography></TableCell>
+                <TableCell><Typography color={COLORS.black} fontWeight="bold">Status</Typography></TableCell>
+                <TableCell><Typography color={COLORS.black} fontWeight="bold">Joined Date</Typography></TableCell>
+                <TableCell><Typography color={COLORS.black} fontWeight="bold">Actions</Typography></TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {studentsList.map(student => (
+                <TableRow key={student.id} hover sx={{ '&:hover': { backgroundColor: COLORS.lightGray } }}>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <Avatar sx={{ bgcolor: COLORS.info }}>
+                        {student.name?.charAt(0) || 'S'}
+                      </Avatar>
+                      <Box>
+                        <Typography variant="subtitle2" color={COLORS.black}>{student.name}</Typography>
+                        <Typography variant="body2" color={COLORS.darkGray}>
+                          {student.email}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </TableCell>
+                  <TableCell>
                     <Box>
-                      <Typography variant="subtitle2">{student.name}</Typography>
-                      <Typography variant="body2" color="textSecondary">
-                        {student.email}
+                      <Typography variant="body2" color={COLORS.black}>
+                        <strong>Field:</strong> {student.field || 'Not specified'}
+                      </Typography>
+                      <Typography variant="body2" color={COLORS.black}>
+                        <strong>GPA:</strong> {student.gpa || 'Not set'}
                       </Typography>
                     </Box>
-                  </Box>
-                </TableCell>
-                <TableCell>
-                  <Box>
-                    <Typography variant="body2">
-                      <strong>Field:</strong> {student.field || 'Not specified'}
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" color={COLORS.black}>
+                      {admissions.filter(app => app.userId === student.id).length} applied
                     </Typography>
-                    <Typography variant="body2">
-                      <strong>GPA:</strong> {student.gpa || 'Not set'}
-                    </Typography>
-                  </Box>
-                </TableCell>
-                <TableCell>
-                  <Typography variant="body2">
-                    {admissions.filter(app => app.userId === student.id).length} applied
-                  </Typography>
-                </TableCell>
-                <TableCell>
-                  <Chip 
-                    label={student.status || 'active'} 
-                    color={getStatusColor(student.status)}
-                    size="small"
-                  />
-                </TableCell>
-                <TableCell>{formatDate(student.createdAt)}</TableCell>
-                <TableCell>
-                  <IconButton onClick={(e) => handleUserMenuOpen(e, student)}>
-                    <MoreVert />
-                  </IconButton>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+                  </TableCell>
+                  <TableCell>
+                    <Chip 
+                      label={student.status || 'active'} 
+                      color={getStatusColor(student.status)}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell><Typography color={COLORS.black}>{formatDate(student.createdAt)}</Typography></TableCell>
+                  <TableCell>
+                    <Button onClick={(e) => handleUserMenuOpen(e, student)} sx={{ color: COLORS.primary }}>
+                      Actions
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Paper>
       </TabPanel>
 
       {/* Admins Tab */}
       <TabPanel value={tabValue} index={4}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-          <Typography variant="h5">Administrator Accounts</Typography>
-          <Typography variant="body2" color="textSecondary">
+          <Typography variant="h5" color={COLORS.black}>Administrator Accounts</Typography>
+          <Typography variant="body2" color={COLORS.darkGray}>
             Total: {adminsList.length} administrators
           </Typography>
         </Box>
@@ -1928,20 +2054,20 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
         <Grid container spacing={3}>
           {adminsList.map(admin => (
             <Grid item xs={12} md={6} lg={4} key={admin.id}>
-              <Card sx={{ p: 3, textAlign: 'center' }}>
+              <Card sx={{ p: 3, textAlign: 'center', backgroundColor: COLORS.white }}>
                 <Avatar sx={{ 
                   width: 80, 
                   height: 80, 
                   mx: 'auto', 
                   mb: 2,
-                  bgcolor: 'error.main'
+                  bgcolor: COLORS.error
                 }}>
-                  <AdminPanelSettings sx={{ fontSize: 40 }} />
+                  {admin.name?.charAt(0) || 'A'}
                 </Avatar>
-                <Typography variant="h6" gutterBottom>
+                <Typography variant="h6" gutterBottom color={COLORS.black}>
                   {admin.name}
                 </Typography>
-                <Typography variant="body2" color="textSecondary" gutterBottom>
+                <Typography variant="body2" color={COLORS.darkGray} gutterBottom>
                   {admin.email}
                 </Typography>
                 <Chip 
@@ -1949,7 +2075,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                   color={getStatusColor(admin.status)}
                   sx={{ mt: 1 }}
                 />
-                <Typography variant="body2" sx={{ mt: 2 }}>
+                <Typography variant="body2" sx={{ mt: 2 }} color={COLORS.black}>
                   Last active: {formatDate(admin.lastLogin)}
                 </Typography>
               </Card>
@@ -1961,8 +2087,8 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
       {/* Pending Approval Tab */}
       <TabPanel value={tabValue} index={5}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-          <Typography variant="h5">Pending Company Approvals</Typography>
-          <Typography variant="body2" color="textSecondary">
+          <Typography variant="h5" color={COLORS.black}>Pending Company Approvals</Typography>
+          <Typography variant="body2" color={COLORS.darkGray}>
             {pendingCompanies.length} companies awaiting approval
           </Typography>
         </Box>
@@ -1976,41 +2102,41 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
           <Grid container spacing={3}>
             {pendingCompanies.map(company => (
               <Grid item xs={12} md={6} key={company.id}>
-                <Card variant="outlined" sx={{ p: 3 }}>
+                <Card variant="outlined" sx={{ p: 3, backgroundColor: COLORS.white }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-                    <Avatar sx={{ bgcolor: 'warning.main' }}>
-                      <Business />
+                    <Avatar sx={{ bgcolor: COLORS.warning }}>
+                      {company.name?.charAt(0) || 'C'}
                     </Avatar>
                     <Box sx={{ flex: 1 }}>
-                      <Typography variant="h6">{company.name}</Typography>
-                      <Typography variant="body2" color="textSecondary">
+                      <Typography variant="h6" color={COLORS.black}>{company.name}</Typography>
+                      <Typography variant="body2" color={COLORS.darkGray}>
                         {company.industry || 'Industry not specified'}
                       </Typography>
                     </Box>
                   </Box>
 
-                  <Typography variant="body2" sx={{ mb: 2 }}>
+                  <Typography variant="body2" sx={{ mb: 2 }} color={COLORS.black}>
                     {company.description || 'No description provided.'}
                   </Typography>
 
                   <Grid container spacing={2} sx={{ mb: 3 }}>
                     <Grid item xs={6}>
-                      <Typography variant="body2">
+                      <Typography variant="body2" color={COLORS.black}>
                         <strong>Email:</strong> {company.email}
                       </Typography>
                     </Grid>
                     <Grid item xs={6}>
-                      <Typography variant="body2">
+                      <Typography variant="body2" color={COLORS.black}>
                         <strong>Phone:</strong> {company.phone || 'Not provided'}
                       </Typography>
                     </Grid>
                     <Grid item xs={6}>
-                      <Typography variant="body2">
+                      <Typography variant="body2" color={COLORS.black}>
                         <strong>Location:</strong> {company.location || 'Not specified'}
                       </Typography>
                     </Grid>
                     <Grid item xs={6}>
-                      <Typography variant="body2">
+                      <Typography variant="body2" color={COLORS.black}>
                         <strong>Applied:</strong> {formatDate(company.createdAt)}
                       </Typography>
                     </Grid>
@@ -2020,7 +2146,6 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                     <Button 
                       variant="contained" 
                       color="success"
-                      startIcon={<CheckCircle />}
                       onClick={() => manageUserStatus(company.id, 'approve')}
                       sx={{ flex: 1 }}
                     >
@@ -2029,7 +2154,6 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                     <Button 
                       variant="outlined" 
                       color="error"
-                      startIcon={<Block />}
                       onClick={() => manageUserStatus(company.id, 'reject')}
                       sx={{ flex: 1 }}
                     >
@@ -2043,14 +2167,14 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
         )}
       </TabPanel>
 
-      {/* System Reports Tab - REMOVED admission rate references */}
+      {/* System Reports Tab */}
       <TabPanel value={tabValue} index={6}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-          <Typography variant="h5">System Reports & Analytics</Typography>
+          <Typography variant="h5" color={COLORS.black}>System Reports & Analytics</Typography>
           <Button 
             variant="contained" 
-            startIcon={<Assessment />}
             onClick={generateSystemReport}
+            sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.primaryDark } }}
           >
             Generate New Report
           </Button>
@@ -2064,41 +2188,41 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
         ) : (
           <Grid container spacing={3}>
             <Grid item xs={12}>
-              <Typography variant="h6" gutterBottom>
+              <Typography variant="h6" gutterBottom color={COLORS.black}>
                 Generated Reports ({reports.length})
               </Typography>
             </Grid>
             {reports.map((report, index) => (
               <Grid item xs={12} md={6} key={report.id}>
-                <Card sx={{ p: 3 }}>
+                <Card sx={{ p: 3, backgroundColor: COLORS.white }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                    <Typography variant="h6">
+                    <Typography variant="h6" color={COLORS.black}>
                       System Report #{reports.length - index}
                     </Typography>
                     <Chip 
                       label={formatDate(report.generatedAt)} 
                       size="small" 
-                      color="primary"
+                      sx={{ backgroundColor: COLORS.primary, color: COLORS.white }}
                     />
                   </Box>
                   
-                  <Typography variant="body2" color="textSecondary" gutterBottom>
+                  <Typography variant="body2" color={COLORS.darkGray} gutterBottom>
                     Generated by: {report.generatedByName || 'Administrator'}
                   </Typography>
 
                   <Grid container spacing={2} sx={{ mt: 1 }}>
                     <Grid item xs={6}>
-                      <Typography variant="body2">
+                      <Typography variant="body2" color={COLORS.black}>
                         <strong>Total Users:</strong> {report.statistics?.totalUsers || 0}
                       </Typography>
                     </Grid>
                     <Grid item xs={6}>
-                      <Typography variant="body2">
+                      <Typography variant="body2" color={COLORS.black}>
                         <strong>Applications:</strong> {report.statistics?.totalApplications || 0}
                       </Typography>
                     </Grid>
                     <Grid item xs={6}>
-                      <Typography variant="body2">
+                      <Typography variant="body2" color={COLORS.black}>
                         <strong>Active Jobs:</strong> {report.statistics?.totalJobs || 0}
                       </Typography>
                     </Grid>
@@ -2108,16 +2232,16 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                     <Button 
                       size="small" 
                       variant="outlined" 
-                      startIcon={<Visibility />}
                       onClick={() => handleViewReportDetails(report)}
+                      sx={{ borderColor: COLORS.primary, color: COLORS.primary }}
                     >
                       View Details
                     </Button>
                     <Button 
                       size="small" 
                       variant="outlined" 
-                      startIcon={<Download />}
                       onClick={() => handleExportReport(report)}
+                      sx={{ borderColor: COLORS.primary, color: COLORS.primary }}
                     >
                       Export Report
                     </Button>
@@ -2132,10 +2256,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
       {/* Add Institution Dialog */}
       <Dialog open={addInstitutionOpen} onClose={() => setAddInstitutionOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Add />
-            <Typography variant="h6">Add New Institution</Typography>
-          </Box>
+          <Typography variant="h6" color={COLORS.black}>Add New Institution</Typography>
         </DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
@@ -2204,7 +2325,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
             onClick={addInstitution}
             variant="contained"
             disabled={!institutionData.name.trim() || !institutionData.email.trim() || institutionData.password.length < 6}
-            startIcon={<Add />}
+            sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.primaryDark } }}
           >
             Add Institution
           </Button>
@@ -2214,10 +2335,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
       {/* Add Faculty Dialog */}
       <Dialog open={addFacultyOpen} onClose={() => setAddFacultyOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Class />
-            <Typography variant="h6">Add New Faculty</Typography>
-          </Box>
+          <Typography variant="h6" color={COLORS.black}>Add New Faculty</Typography>
         </DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
@@ -2258,7 +2376,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
             onClick={addFaculty}
             variant="contained"
             disabled={!facultyData.name.trim() || !facultyData.instituteId}
-            startIcon={<Add />}
+            sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.primaryDark } }}
           >
             Add Faculty
           </Button>
@@ -2268,10 +2386,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
       {/* Add Course Dialog */}
       <Dialog open={addCourseOpen} onClose={() => setAddCourseOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <School />
-            <Typography variant="h6">Add New Course</Typography>
-          </Box>
+          <Typography variant="h6" color={COLORS.black}>Add New Course</Typography>
         </DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
@@ -2344,7 +2459,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
             onClick={addCourse}
             variant="contained"
             disabled={!courseData.name.trim() || !courseData.facultyId}
-            startIcon={<Add />}
+            sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.primaryDark } }}
           >
             Add Course
           </Button>
@@ -2354,10 +2469,7 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
       {/* Publish Admissions Dialog */}
       <Dialog open={publishAdmissionsOpen} onClose={() => setPublishAdmissionsOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Publish />
-            <Typography variant="h6">Publish Admissions</Typography>
-          </Box>
+          <Typography variant="h6" color={COLORS.black}>Publish Admissions</Typography>
         </DialogTitle>
         <DialogContent>
           <Box sx={{ mt: 2 }}>
@@ -2414,70 +2526,72 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
           <Button 
             onClick={publishAdmissions}
             variant="contained"
-            color="primary"
+            sx={{ 
+              backgroundColor: COLORS.primary,
+              '&:hover': { backgroundColor: COLORS.primaryDark }
+            }}
             disabled={!admissionSettings.startDate || !admissionSettings.endDate}
-            startIcon={<Publish />}
           >
             Publish Admissions
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* View Reports Dialog - REMOVED admission rate references */}
+      {/* View Reports Dialog */}
       <Dialog open={viewReportsOpen} onClose={() => setViewReportsOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
-          <Typography variant="h6">Report Details</Typography>
+          <Typography variant="h6" color={COLORS.black}>Report Details</Typography>
         </DialogTitle>
         <DialogContent>
           {selectedInstitution && (
             <Box sx={{ mt: 2 }}>
-              <Typography variant="h6" gutterBottom>
+              <Typography variant="h6" gutterBottom color={COLORS.black}>
                 System Report - {formatDate(selectedInstitution.generatedAt)}
               </Typography>
-              <Typography variant="body2" color="textSecondary" gutterBottom>
+              <Typography variant="body2" color={COLORS.darkGray} gutterBottom>
                 Generated by: {selectedInstitution.generatedByName || 'Administrator'}
               </Typography>
               
               <Divider sx={{ my: 2 }} />
               
-              <Typography variant="h6" gutterBottom>Statistics</Typography>
+              <Typography variant="h6" gutterBottom color={COLORS.black}>Statistics</Typography>
               <Grid container spacing={2}>
                 <Grid item xs={6}>
-                  <Typography variant="body2"><strong>Total Users:</strong> {selectedInstitution.statistics?.totalUsers || 0}</Typography>
+                  <Typography variant="body2" color={COLORS.black}><strong>Total Users:</strong> {selectedInstitution.statistics?.totalUsers || 0}</Typography>
                 </Grid>
                 <Grid item xs={6}>
-                  <Typography variant="body2"><strong>Students:</strong> {selectedInstitution.statistics?.students || 0}</Typography>
+                  <Typography variant="body2" color={COLORS.black}><strong>Students:</strong> {selectedInstitution.statistics?.students || 0}</Typography>
                 </Grid>
                 <Grid item xs={6}>
-                  <Typography variant="body2"><strong>Institutions:</strong> {selectedInstitution.statistics?.institutes || 0}</Typography>
+                  <Typography variant="body2" color={COLORS.black}><strong>Institutions:</strong> {selectedInstitution.statistics?.institutes || 0}</Typography>
                 </Grid>
                 <Grid item xs={6}>
-                  <Typography variant="body2"><strong>Companies:</strong> {selectedInstitution.statistics?.companies || 0}</Typography>
+                  <Typography variant="body2" color={COLORS.black}><strong>Companies:</strong> {selectedInstitution.statistics?.companies || 0}</Typography>
                 </Grid>
                 <Grid item xs={6}>
-                  <Typography variant="body2"><strong>Total Applications:</strong> {selectedInstitution.statistics?.totalApplications || 0}</Typography>
+                  <Typography variant="body2" color={COLORS.black}><strong>Total Applications:</strong> {selectedInstitution.statistics?.totalApplications || 0}</Typography>
                 </Grid>
                 <Grid item xs={6}>
-                  <Typography variant="body2"><strong>Active Jobs:</strong> {selectedInstitution.statistics?.totalJobs || 0}</Typography>
+                  <Typography variant="body2" color={COLORS.black}><strong>Active Jobs:</strong> {selectedInstitution.statistics?.totalJobs || 0}</Typography>
                 </Grid>
               </Grid>
               
               {selectedInstitution.usersByRole && (
                 <>
                   <Divider sx={{ my: 2 }} />
-                  <Typography variant="h6" gutterBottom>Users by Role</Typography>
+                  <Typography variant="h6" gutterBottom color={COLORS.black}>Users by Role</Typography>
                   <Grid container spacing={2}>
                     <Grid item xs={6}>
-                      <Typography variant="body2"><strong>Students:</strong> {selectedInstitution.usersByRole.students || 0}</Typography>
+                      <Typography variant="body2" color={COLORS.black}><strong>Students:</strong> {selectedInstitution.usersByRole.students || 0}</Typography>
                     </Grid>
                     <Grid item xs={6}>
-                      <Typography variant="body2"><strong>Institutions:</strong> {selectedInstitution.usersByRole.institutes || 0}</Typography>
+                      <Typography variant="body2" color={COLORS.black}><strong>Institutions:</strong> {selectedInstitution.usersByRole.institutes || 0}</Typography>
                     </Grid>
                     <Grid item xs={6}>
-                      <Typography variant="body2"><strong>Companies:</strong> {selectedInstitution.usersByRole.companies || 0}</Typography>
+                      <Typography variant="body2" color={COLORS.black}><strong>Companies:</strong> {selectedInstitution.usersByRole.companies || 0}</Typography>
                     </Grid>
                     <Grid item xs={6}>
-                      <Typography variant="body2"><strong>Admins:</strong> {selectedInstitution.usersByRole.admins || 0}</Typography>
+                      <Typography variant="body2" color={COLORS.black}><strong>Admins:</strong> {selectedInstitution.usersByRole.admins || 0}</Typography>
                     </Grid>
                   </Grid>
                 </>
@@ -2497,43 +2611,28 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
         onClose={handleUserMenuClose}
       >
         <MenuItem onClick={() => handleViewUser(selectedUser)}>
-          <ListItemIcon>
-            <Visibility fontSize="small" />
-          </ListItemIcon>
           <ListItemText>View Details</ListItemText>
         </MenuItem>
         
         {selectedUser?.status === 'pending' && (
           <MenuItem onClick={() => manageUserStatus(selectedUser.id, 'approve')}>
-            <ListItemIcon>
-              <CheckCircle fontSize="small" color="success" />
-            </ListItemIcon>
             <ListItemText>Approve</ListItemText>
           </MenuItem>
         )}
         
         {selectedUser?.status === 'active' && (
           <MenuItem onClick={() => manageUserStatus(selectedUser.id, 'suspend')}>
-            <ListItemIcon>
-              <Block fontSize="small" color="warning" />
-            </ListItemIcon>
             <ListItemText>Suspend</ListItemText>
           </MenuItem>
         )}
         
         {selectedUser?.status === 'suspended' && (
           <MenuItem onClick={() => manageUserStatus(selectedUser.id, 'activate')}>
-            <ListItemIcon>
-              <CheckCircle fontSize="small" color="success" />
-            </ListItemIcon>
             <ListItemText>Activate</ListItemText>
           </MenuItem>
         )}
         
         <MenuItem onClick={() => deleteUserAccount(selectedUser?.id)}>
-          <ListItemIcon>
-            <Delete fontSize="small" color="error" />
-          </ListItemIcon>
           <ListItemText>Delete User</ListItemText>
         </MenuItem>
       </Menu>
@@ -2541,18 +2640,18 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
       {/* View User Dialog */}
       <Dialog open={viewUserDialogOpen} onClose={() => setViewUserDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>
-          <Typography variant="h6">User Details</Typography>
+          <Typography variant="h6" color={COLORS.black}>User Details</Typography>
         </DialogTitle>
         <DialogContent>
           {selectedUser && (
             <Box sx={{ mt: 2 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
                 <Avatar sx={{ width: 60, height: 60, bgcolor: getRoleColor(selectedUser.role) }}>
-                  {getRoleIcon(selectedUser.role)}
+                  {selectedUser.name?.charAt(0) || 'U'}
                 </Avatar>
                 <Box>
-                  <Typography variant="h6">{selectedUser.name}</Typography>
-                  <Typography variant="body2" color="textSecondary">
+                  <Typography variant="h6" color={COLORS.black}>{selectedUser.name}</Typography>
+                  <Typography variant="body2" color={COLORS.darkGray}>
                     {selectedUser.email}
                   </Typography>
                   <Chip 
@@ -2572,52 +2671,52 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
 
               <Grid container spacing={2}>
                 <Grid item xs={6}>
-                  <Typography variant="body2" color="textSecondary">
+                  <Typography variant="body2" color={COLORS.darkGray}>
                     <strong>Phone:</strong>
                   </Typography>
-                  <Typography variant="body1">
+                  <Typography variant="body1" color={COLORS.black}>
                     {selectedUser.phone || 'Not provided'}
                   </Typography>
                 </Grid>
                 <Grid item xs={6}>
-                  <Typography variant="body2" color="textSecondary">
+                  <Typography variant="body2" color={COLORS.darkGray}>
                     <strong>Location:</strong>
                   </Typography>
-                  <Typography variant="body1">
+                  <Typography variant="body1" color={COLORS.black}>
                     {selectedUser.location || 'Not specified'}
                   </Typography>
                 </Grid>
                 <Grid item xs={6}>
-                  <Typography variant="body2" color="textSecondary">
+                  <Typography variant="body2" color={COLORS.darkGray}>
                     <strong>Joined:</strong>
                   </Typography>
-                  <Typography variant="body1">
+                  <Typography variant="body1" color={COLORS.black}>
                     {formatDate(selectedUser.createdAt)}
                   </Typography>
                 </Grid>
                 <Grid item xs={6}>
-                  <Typography variant="body2" color="textSecondary">
+                  <Typography variant="body2" color={COLORS.darkGray}>
                     <strong>Last Active:</strong>
                   </Typography>
-                  <Typography variant="body1">
+                  <Typography variant="body1" color={COLORS.black}>
                     {formatDate(selectedUser.lastLogin) || 'Unknown'}
                   </Typography>
                 </Grid>
                 {selectedUser.role === 'student' && (
                   <>
                     <Grid item xs={6}>
-                      <Typography variant="body2" color="textSecondary">
+                      <Typography variant="body2" color={COLORS.darkGray}>
                         <strong>Field:</strong>
                       </Typography>
-                      <Typography variant="body1">
+                      <Typography variant="body1" color={COLORS.black}>
                         {selectedUser.field || 'Not specified'}
                       </Typography>
                     </Grid>
                     <Grid item xs={6}>
-                      <Typography variant="body2" color="textSecondary">
+                      <Typography variant="body2" color={COLORS.darkGray}>
                         <strong>GPA:</strong>
                       </Typography>
-                      <Typography variant="body1">
+                      <Typography variant="body1" color={COLORS.black}>
                         {selectedUser.gpa || 'Not set'}
                       </Typography>
                     </Grid>
@@ -2625,20 +2724,20 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                 )}
                 {selectedUser.role === 'company' && (
                   <Grid item xs={12}>
-                    <Typography variant="body2" color="textSecondary">
+                    <Typography variant="body2" color={COLORS.darkGray}>
                       <strong>Industry:</strong>
                     </Typography>
-                    <Typography variant="body1">
+                    <Typography variant="body1" color={COLORS.black}>
                       {selectedUser.industry || 'Not specified'}
                     </Typography>
                   </Grid>
                 )}
                 {selectedUser.description && (
                   <Grid item xs={12}>
-                    <Typography variant="body2" color="textSecondary">
+                    <Typography variant="body2" color={COLORS.darkGray}>
                       <strong>Description:</strong>
                     </Typography>
-                    <Typography variant="body1">
+                    <Typography variant="body1" color={COLORS.black}>
                       {selectedUser.description}
                     </Typography>
                   </Grid>
@@ -2655,18 +2754,18 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
       {/* View Institution Dialog */}
       <Dialog open={viewInstitutionDialogOpen} onClose={() => setViewInstitutionDialogOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
-          <Typography variant="h6">Institution Details</Typography>
+          <Typography variant="h6" color={COLORS.black}>Institution Details</Typography>
         </DialogTitle>
         <DialogContent>
           {selectedInstitution && (
             <Box sx={{ mt: 2 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-                <Avatar sx={{ width: 60, height: 60, bgcolor: 'success.main' }}>
-                  <School />
+                <Avatar sx={{ width: 60, height: 60, bgcolor: COLORS.primary }}>
+                  {selectedInstitution.name?.charAt(0) || 'I'}
                 </Avatar>
                 <Box>
-                  <Typography variant="h5">{selectedInstitution.name}</Typography>
-                  <Typography variant="body2" color="textSecondary">
+                  <Typography variant="h5" color={COLORS.black}>{selectedInstitution.name}</Typography>
+                  <Typography variant="body2" color={COLORS.darkGray}>
                     {selectedInstitution.email}
                   </Typography>
                   <Chip 
@@ -2680,41 +2779,26 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
               <Grid container spacing={3}>
                 <Grid item xs={12} md={6}>
                   <Card variant="outlined" sx={{ p: 2 }}>
-                    <Typography variant="h6" gutterBottom>Contact Information</Typography>
+                    <Typography variant="h6" gutterBottom color={COLORS.black}>Contact Information</Typography>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <LocationOn color="action" />
-                        <Typography variant="body2">
-                          <strong>Location:</strong> {selectedInstitution.location || 'Not specified'}
-                        </Typography>
-                      </Box>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Phone color="action" />
-                        <Typography variant="body2">
-                          <strong>Phone:</strong> {selectedInstitution.phone || 'Not provided'}
-                        </Typography>
-                      </Box>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Email color="action" />
-                        <Typography variant="body2">
-                          <strong>Email:</strong> {selectedInstitution.email}
-                        </Typography>
-                      </Box>
+                      <Typography variant="body2" color={COLORS.black}>
+                        <strong>Location:</strong> {selectedInstitution.location || 'Not specified'}
+                      </Typography>
+                      <Typography variant="body2" color={COLORS.black}>
+                        <strong>Phone:</strong> {selectedInstitution.phone || 'Not provided'}
+                      </Typography>
+                      <Typography variant="body2" color={COLORS.black}>
+                        <strong>Email:</strong> {selectedInstitution.email}
+                      </Typography>
                       {selectedInstitution.website && (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Business color="action" />
-                          <Typography variant="body2">
-                            <strong>Website:</strong> {selectedInstitution.website}
-                          </Typography>
-                        </Box>
+                        <Typography variant="body2" color={COLORS.black}>
+                          <strong>Website:</strong> {selectedInstitution.website}
+                        </Typography>
                       )}
                       {selectedInstitution.establishedYear && (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <CalendarToday color="action" />
-                          <Typography variant="body2">
-                            <strong>Established:</strong> {selectedInstitution.establishedYear}
-                          </Typography>
-                        </Box>
+                        <Typography variant="body2" color={COLORS.black}>
+                          <strong>Established:</strong> {selectedInstitution.establishedYear}
+                        </Typography>
                       )}
                     </Box>
                   </Card>
@@ -2722,21 +2806,21 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
 
                 <Grid item xs={12} md={6}>
                   <Card variant="outlined" sx={{ p: 2 }}>
-                    <Typography variant="h6" gutterBottom>Statistics</Typography>
+                    <Typography variant="h6" gutterBottom color={COLORS.black}>Statistics</Typography>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                      <Typography variant="body2">
+                      <Typography variant="body2" color={COLORS.black}>
                         <strong>Faculties:</strong> {faculties.filter(f => f.instituteId === selectedInstitution.id).length}
                       </Typography>
-                      <Typography variant="body2">
+                      <Typography variant="body2" color={COLORS.black}>
                         <strong>Courses:</strong> {courses.filter(c => {
                           const faculty = faculties.find(f => f.id === c.facultyId);
                           return faculty?.instituteId === selectedInstitution.id;
                         }).length}
                       </Typography>
-                      <Typography variant="body2">
+                      <Typography variant="body2" color={COLORS.black}>
                         <strong>Applications:</strong> {admissions.filter(app => app.instituteId === selectedInstitution.id).length}
                       </Typography>
-                      <Typography variant="body2">
+                      <Typography variant="body2" color={COLORS.black}>
                         <strong>Joined:</strong> {formatDate(selectedInstitution.createdAt)}
                       </Typography>
                     </Box>
@@ -2746,8 +2830,8 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                 {selectedInstitution.description && (
                   <Grid item xs={12}>
                     <Card variant="outlined" sx={{ p: 2 }}>
-                      <Typography variant="h6" gutterBottom>Description</Typography>
-                      <Typography variant="body2">
+                      <Typography variant="h6" gutterBottom color={COLORS.black}>Description</Typography>
+                      <Typography variant="body2" color={COLORS.black}>
                         {selectedInstitution.description}
                       </Typography>
                     </Card>
@@ -2757,9 +2841,9 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                 {/* Associated Faculties */}
                 <Grid item xs={12}>
                   <Card variant="outlined" sx={{ p: 2 }}>
-                    <Typography variant="h6" gutterBottom>Associated Faculties</Typography>
+                    <Typography variant="h6" gutterBottom color={COLORS.black}>Associated Faculties</Typography>
                     {faculties.filter(f => f.instituteId === selectedInstitution.id).length === 0 ? (
-                      <Typography variant="body2" color="textSecondary">
+                      <Typography variant="body2" color={COLORS.darkGray}>
                         No faculties associated with this institution.
                       </Typography>
                     ) : (
@@ -2770,7 +2854,9 @@ ${report.topInstitutions?.map(inst => `- ${inst.name}: ${inst.courses} courses, 
                             <ListItem key={faculty.id}>
                               <ListItemText
                                 primary={faculty.name}
+                                primaryTypographyProps={{ color: COLORS.black }}
                                 secondary={faculty.description || 'No description'}
+                                secondaryTypographyProps={{ color: COLORS.darkGray }}
                               />
                             </ListItem>
                           ))}

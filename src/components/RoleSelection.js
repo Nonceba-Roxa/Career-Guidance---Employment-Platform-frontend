@@ -2,20 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Container, Typography, Grid, Card, CardContent, CardActions, Button, 
-  Box, Fade, Zoom, Slide, Grow, Avatar, Chip, useTheme, useMediaQuery,
-  Dialog, DialogTitle, DialogContent, DialogActions, IconButton,
-  List, ListItem, ListItemIcon, ListItemText, Paper, alpha,
-  CircularProgress, Alert, AppBar, Toolbar, Tooltip
+  Box, Fade, Grow, Avatar, Chip, useTheme, useMediaQuery,
+  Dialog, DialogTitle, DialogContent, DialogActions,
+  List, ListItem, ListItemText, Paper, alpha,
+  Alert, Tooltip
 } from '@mui/material';
-import { 
-  School, Business, AccountBalance, AdminPanelSettings,
-  Close, CheckCircle, Info, Login,
-  Security, AutoAwesome, Psychology, Star, Group,
-  Work, Person, TrendingUp, HowToReg, Explore, CorporateFare, MenuBook
-} from '@mui/icons-material';
 import { keyframes } from '@mui/system';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../firebase';
 
 const float = keyframes`
   0% { transform: translateY(0px); }
@@ -29,81 +21,26 @@ const RoleSelection = () => {
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [selectedRole, setSelectedRole] = useState(null);
   const [infoDialogOpen, setInfoDialogOpen] = useState(false);
-  const [stats, setStats] = useState({
-    students: 0,
-    institutions: 0,
-    companies: 0,
-    jobs: 0,
-    courses: 0
-  });
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Professional blue color scheme
+  // Professional color scheme (no blue) - Using consistent primary color
   const professionalColors = {
-    primary: '#1976d2',
-    primaryDark: '#1565c0',
-    primaryLight: '#42a5f5',
-    gradient: 'linear-gradient(135deg, #1976d2 0%, #1565c0 100%)',
-    gradientLight: 'linear-gradient(135deg, #42a5f5 0%, #1976d2 100%)',
-    gradientHover: 'linear-gradient(135deg, #1565c0 0%, #0d47a1 100%)',
+    primary: '#2c5530', // Professional green
+    primaryDark: '#1e3a24',
+    primaryLight: '#4a7c59',
+    background: '#ffffff',
+    cardBackground: '#f8f9fa',
+    textPrimary: '#2c3e50',
+    textSecondary: '#5a6c7d',
+    border: '#e1e5e9',
+    hover: '#f1f3f4',
   };
-
-  // Fetch real statistics from Firebase
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        setLoading(true);
-        console.log('Fetching platform statistics from Firebase...');
-
-        const [usersSnapshot, jobsSnapshot, coursesSnapshot, institutionsSnapshot] = await Promise.all([
-          getDocs(collection(db, 'users')),
-          getDocs(collection(db, 'jobs')),
-          getDocs(collection(db, 'courses')),
-          getDocs(collection(db, 'institutions'))
-        ]);
-
-        const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        
-        const institutionsFromCollection = institutionsSnapshot.docs.length;
-        const institutionUsers = users.filter(u => u.role === 'institution' || u.role === 'institute').length;
-        const totalInstitutions = institutionsFromCollection + institutionUsers;
-
-        const realStats = {
-          students: users.filter(u => u.role === 'student').length,
-          institutions: totalInstitutions,
-          companies: users.filter(u => u.role === 'company').length,
-          jobs: jobsSnapshot.docs.length,
-          courses: coursesSnapshot.docs.length
-        };
-
-        console.log('Real stats loaded successfully:', realStats);
-        setStats(realStats);
-        setError(null);
-      } catch (error) {
-        console.error('Error fetching statistics:', error);
-        setError('Unable to load live statistics. Showing demo data.');
-        setStats({
-          students: 1250,
-          institutions: 45,
-          companies: 120,
-          jobs: 350,
-          courses: 280
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchStats();
-  }, []);
 
   const roles = [
     { 
       role: 'student', 
       title: 'Student', 
       description: 'Discover your future with personalized course recommendations and career opportunities.', 
-      icon: <School sx={{ fontSize: 48 }} />,
       action: 'Start Learning Journey',
       features: [
         'Personalized course recommendations',
@@ -114,14 +51,13 @@ const RoleSelection = () => {
         'Upload academic transcripts',
         'Receive job notifications'
       ],
-      stats: loading ? <CircularProgress size={20} sx={{ color: 'white' }} /> : `${stats.students}+ Students`,
+      stats: 'Join Now',
       testimonial: '"This platform helped me find the perfect university and land my dream job!"'
     },
     { 
       role: 'institute', 
       title: 'Educational Institution', 
       description: 'Showcase your programs and connect with qualified students seeking quality education.', 
-      icon: <AccountBalance sx={{ fontSize: 48 }} />,
       action: 'Manage Institution',
       features: [
         'Comprehensive course management',
@@ -132,14 +68,13 @@ const RoleSelection = () => {
         'Manage student applications',
         'Publish admissions'
       ],
-      stats: loading ? <CircularProgress size={20} sx={{ color: 'white' }} /> : `${stats.institutions}+ Institutions`,
+      stats: 'Get Started',
       testimonial: '"Streamlined our admission process and increased qualified applications by 40%"'
     },
     { 
       role: 'company', 
       title: 'Company', 
       description: 'Find the perfect talent from our pool of qualified graduates and students.', 
-      icon: <Business sx={{ fontSize: 48 }} />,
       action: 'Find Talent',
       features: [
         'Powered candidate matching',
@@ -150,14 +85,13 @@ const RoleSelection = () => {
         'Post job opportunities',
         'Filter qualified applicants'
       ],
-      stats: loading ? <CircularProgress size={20} sx={{ color: 'white' }} /> : `${stats.companies}+ Companies`,
+      stats: 'Find Talent',
       testimonial: '"Found exceptional candidates that perfectly matched our requirements in days!"'
     },
     { 
       role: 'admin', 
       title: 'Platform Administrator', 
       description: 'Oversee platform operations and ensure seamless experience for all users.', 
-      icon: <AdminPanelSettings sx={{ fontSize: 48 }} />,
       action: 'Manage Platform',
       features: [
         'Complete system oversight',
@@ -203,16 +137,18 @@ const RoleSelection = () => {
             height: '100%',
             display: 'flex',
             flexDirection: 'column',
-            background: professionalColors.gradient,
-            color: 'white',
+            background: professionalColors.background,
+            color: professionalColors.textPrimary,
             position: 'relative',
             overflow: 'hidden',
             cursor: 'pointer',
+            border: `1px solid ${professionalColors.border}`,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
             transition: 'all 0.3s ease-in-out',
             '&:hover': {
               transform: 'translateY(-8px)',
-              background: professionalColors.gradientHover,
-              boxShadow: `0 20px 40px ${alpha('#000', 0.3)}`,
+              background: professionalColors.hover,
+              boxShadow: `0 20px 40px ${alpha('#000', 0.15)}`,
             },
             '&::before': {
               content: '""',
@@ -221,7 +157,7 @@ const RoleSelection = () => {
               left: 0,
               right: 0,
               height: '4px',
-              background: 'rgba(255,255,255,0.3)',
+              background: professionalColors.primary, // Consistent color
             }
           }}
         >
@@ -233,7 +169,7 @@ const RoleSelection = () => {
               width: 100,
               height: 100,
               borderRadius: '50%',
-              background: 'rgba(255,255,255,0.1)',
+              background: alpha(professionalColors.primary, 0.05), // Consistent color
               animation: `${float} 6s ease-in-out infinite`,
             }}
           />
@@ -245,7 +181,7 @@ const RoleSelection = () => {
               width: 80,
               height: 80,
               borderRadius: '50%',
-              background: 'rgba(255,255,255,0.1)',
+              background: alpha(professionalColors.primary, 0.05), // Consistent color
               animation: `${float} 4s ease-in-out infinite`,
             }}
           />
@@ -261,12 +197,11 @@ const RoleSelection = () => {
               }}
             >
               <Chip
-                icon={<Star sx={{ fontSize: 16 }} />}
                 label="Most Popular"
                 size="small"
                 sx={{
-                  background: 'rgba(255,255,255,0.9)',
-                  color: professionalColors.primary,
+                  background: professionalColors.primary, // Consistent color
+                  color: 'white',
                   fontWeight: 'bold',
                   fontSize: '0.7rem',
                 }}
@@ -289,17 +224,19 @@ const RoleSelection = () => {
                 width: 80,
                 height: 80,
                 borderRadius: '50%',
-                background: 'rgba(255,255,255,0.2)',
+                background: alpha(professionalColors.primary, 0.1), // Consistent color
                 mb: 3,
-                border: '2px solid rgba(255,255,255,0.3)'
+                border: `2px solid ${alpha(professionalColors.primary, 0.2)}`, // Consistent color
+                color: professionalColors.primary, // Consistent color
+                fontSize: '2rem',
+                fontWeight: 'bold'
               }}
             >
-              {role.icon}
+              {role.title.charAt(0)}
             </Box>
             
             <Typography variant="h5" gutterBottom sx={{ 
               fontWeight: 'bold',
-              textShadow: '0 2px 4px rgba(0,0,0,0.1)',
               minHeight: '64px',
               display: 'flex',
               alignItems: 'center',
@@ -310,7 +247,7 @@ const RoleSelection = () => {
             
             <Typography variant="body2" sx={{ 
               mb: 3,
-              opacity: 0.9,
+              color: professionalColors.textSecondary,
               lineHeight: 1.6,
               minHeight: '48px'
             }}>
@@ -318,20 +255,15 @@ const RoleSelection = () => {
             </Typography>
 
             <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 32 }}>
-              {typeof role.stats === 'string' ? (
-                <Chip
-                  label={role.stats}
-                  size="small"
-                  sx={{
-                    background: 'rgba(255,255,255,0.2)',
-                    color: 'white',
-                    fontWeight: 'bold',
-                    backdropFilter: 'blur(10px)'
-                  }}
-                />
-              ) : (
-                role.stats
-              )}
+              <Chip
+                label={role.stats}
+                size="small"
+                sx={{
+                  background: alpha(professionalColors.primary, 0.1), // Consistent color
+                  color: professionalColors.primary, // Consistent color
+                  fontWeight: 'bold',
+                }}
+              />
             </Box>
           </CardContent>
 
@@ -346,14 +278,14 @@ const RoleSelection = () => {
                 variant="contained" 
                 size="large" 
                 onClick={() => handleRoleSelect(role.role)}
-                endIcon={<HowToReg />}
                 sx={{ 
                   flex: 1,
-                  background: 'rgba(255,255,255,0.9)',
-                  color: professionalColors.primary,
+                  background: professionalColors.primary, // Consistent color
+                  color: 'white',
                   fontWeight: 'bold',
+                  textTransform: 'none',
                   '&:hover': {
-                    background: 'white',
+                    background: professionalColors.primaryDark, // Consistent color
                     transform: 'scale(1.02)',
                   },
                 }}
@@ -368,15 +300,16 @@ const RoleSelection = () => {
                   onClick={() => handleInfoOpen(role)}
                   sx={{ 
                     flex: isMobile ? 1 : 'none',
-                    borderColor: 'rgba(255,255,255,0.5)',
-                    color: 'white',
+                    borderColor: alpha(professionalColors.primary, 0.5), // Consistent color
+                    color: professionalColors.primary, // Consistent color
+                    textTransform: 'none',
                     '&:hover': {
-                      borderColor: 'white',
-                      background: 'rgba(255,255,255,0.1)',
+                      borderColor: professionalColors.primary, // Consistent color
+                      background: alpha(professionalColors.primary, 0.04), // Consistent color
                     }
                   }}
                 >
-                  <Info />
+                  Info
                 </Button>
               </Tooltip>
             </Box>
@@ -389,7 +322,7 @@ const RoleSelection = () => {
   return (
     <Box sx={{
       minHeight: '100vh',
-      background: professionalColors.gradient,
+      background: professionalColors.background,
       position: 'relative',
       overflow: 'hidden',
     }}>
@@ -403,7 +336,7 @@ const RoleSelection = () => {
           width: 200,
           height: 200,
           borderRadius: '50%',
-          background: 'rgba(255,255,255,0.05)',
+          background: alpha(professionalColors.primary, 0.03), // Consistent color
           animation: `${float} 8s ease-in-out infinite`,
         }}
       />
@@ -415,7 +348,7 @@ const RoleSelection = () => {
           width: 150,
           height: 150,
           borderRadius: '50%',
-          background: 'rgba(255,255,255,0.05)',
+          background: alpha(professionalColors.primary, 0.03), // Consistent color
           animation: `${float} 6s ease-in-out infinite`,
         }}
       />
@@ -429,9 +362,8 @@ const RoleSelection = () => {
               gutterBottom 
               sx={{ 
                 fontWeight: 'bold', 
-                color: 'white',
+                color: professionalColors.textPrimary,
                 fontSize: { xs: '2.5rem', md: '3.5rem' },
-                textShadow: '0 4px 8px rgba(0,0,0,0.2)'
               }}
             >
               Career Guidance & Employment Platform
@@ -440,9 +372,8 @@ const RoleSelection = () => {
             <Typography 
               variant="h5" 
               sx={{ 
-                color: 'white', 
+                color: professionalColors.textSecondary, 
                 mb: 4, 
-                opacity: 0.9,
                 maxWidth: 600,
                 mx: 'auto',
                 fontWeight: 300
@@ -451,60 +382,22 @@ const RoleSelection = () => {
               Connecting students, institutions, and employers in one unified ecosystem
             </Typography>
 
-          
-
             {error && (
               <Alert severity="info" sx={{ mb: 2, maxWidth: 600, mx: 'auto' }}>
                 {error}
               </Alert>
             )}
-
-            {/* Stats Bar */}
-            <Slide in timeout={1500} direction="up">
-              <Paper
-                sx={{
-                  display: 'flex',
-                  justifyContent: 'space-around',
-                  p: 3,
-                  background: 'rgba(255,255,255,0.1)',
-                  backdropFilter: 'blur(10px)',
-                  borderRadius: 4,
-                  maxWidth: 800,
-                  mx: 'auto',
-                  border: '1px solid rgba(255,255,255,0.2)'
-                }}
-              >
-                {[
-                  { icon: <Person />, value: stats.students, label: 'Students' },
-                  { icon: <School />, value: stats.institutions, label: 'Institutions' },
-                  { icon: <Business />, value: stats.companies, label: 'Companies' },
-                  { icon: <Work />, value: stats.jobs, label: 'Jobs Posted' },
-                  { icon: <MenuBook />, value: stats.courses, label: 'Courses' },
-                ].map((stat, index) => (
-                  <Box key={stat.label} sx={{ textAlign: 'center' }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 1 }}>
-                      {stat.icon}
-                      <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold', ml: 1 }}>
-                        {loading ? (
-                          <CircularProgress size={20} sx={{ color: 'white' }} />
-                        ) : (
-                          stat.value
-                        )}
-                      </Typography>
-                    </Box>
-                    <Typography variant="body2" sx={{ color: 'white', opacity: 0.8 }}>
-                      {stat.label}
-                    </Typography>
-                  </Box>
-                ))}
-              </Paper>
-            </Slide>
           </Box>
         </Fade>
 
         {/* Role Selection Cards */}
         <Box sx={{ mb: 8 }}>
-          <Typography variant="h3" gutterBottom sx={{ textAlign: 'center', color: 'white', mb: 4, fontWeight: 'bold' }}>
+          <Typography variant="h3" gutterBottom sx={{ 
+            textAlign: 'center', 
+            color: professionalColors.textPrimary, 
+            mb: 4, 
+            fontWeight: 'bold' 
+          }}>
             Choose Your Path
           </Typography>
           <Grid container spacing={3}>
@@ -517,41 +410,44 @@ const RoleSelection = () => {
         {/* Platform Features Section */}
         <Fade in timeout={2000}>
           <Box sx={{ textAlign: 'center', mt: 8 }}>
-            <Typography variant="h3" gutterBottom sx={{ color: 'white', fontWeight: 'bold', mb: 2 }}>
+            <Typography variant="h3" gutterBottom sx={{ 
+              color: professionalColors.textPrimary, 
+              fontWeight: 'bold', 
+              mb: 2 
+            }}>
               Why Choose Our Platform?
             </Typography>
-            <Typography variant="h6" sx={{ color: 'white', opacity: 0.9, mb: 6, maxWidth: 600, mx: 'auto' }}>
+            <Typography variant="h6" sx={{ 
+              color: professionalColors.textSecondary, 
+              mb: 6, 
+              maxWidth: 600, 
+              mx: 'auto' 
+            }}>
               Discover the features that make us the leading career guidance platform
             </Typography>
             <Grid container spacing={4} sx={{ mt: 2 }}>
               {[
                 { 
-                  icon: <AutoAwesome sx={{ fontSize: 40 }} />, 
                   title: 'Powered Matching', 
                   desc: 'Smart algorithms connect students with ideal institutions and jobs' 
                 },
                 { 
-                  icon: <Security sx={{ fontSize: 40 }} />, 
                   title: 'Secure Platform', 
                   desc: 'Enterprise-grade security for all your data and documents' 
                 },
                 { 
-                  icon: <TrendingUp sx={{ fontSize: 40 }} />, 
                   title: 'Proven Success', 
                   desc: 'Thousands of successful placements and admissions' 
                 },
                 { 
-                  icon: <Psychology sx={{ fontSize: 40 }} />, 
                   title: 'Career Guidance', 
                   desc: 'Expert counseling and career path recommendations' 
                 },
                 { 
-                  icon: <Group sx={{ fontSize: 40 }} />, 
                   title: 'Community Network', 
                   desc: 'Connect with peers, mentors, and industry professionals' 
                 },
                 { 
-                  icon: <CorporateFare sx={{ fontSize: 40 }} />, 
                   title: 'Industry Partnerships', 
                   desc: 'Direct connections with top employers and institutions' 
                 },
@@ -561,15 +457,16 @@ const RoleSelection = () => {
                     sx={{
                       p: 4,
                       textAlign: 'center',
-                      background: 'rgba(255,255,255,0.1)',
-                      backdropFilter: 'blur(10px)',
-                      border: '1px solid rgba(255,255,255,0.2)',
-                      color: 'white',
+                      background: professionalColors.background,
+                      border: `1px solid ${professionalColors.border}`,
+                      color: professionalColors.textPrimary,
                       height: '100%',
                       transition: 'all 0.3s ease',
+                      boxShadow: '0 4px 20px rgba(0,0,0,0.06)',
                       '&:hover': {
                         transform: 'translateY(-5px)',
-                        background: 'rgba(255,255,255,0.15)',
+                        boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
+                        borderColor: professionalColors.primary, // Consistent color
                       }
                     }}
                   >
@@ -580,15 +477,19 @@ const RoleSelection = () => {
                       width: 80,
                       height: 80,
                       borderRadius: '50%',
-                      background: 'rgba(255,255,255,0.1)',
-                      mb: 3
+                      background: alpha(professionalColors.primary, 0.1), // Consistent color
+                      mb: 3,
+                      color: professionalColors.primary, // Consistent color
                     }}>
-                      {feature.icon}
+                      {/* Empty circle - consistent styling */}
                     </Box>
                     <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold' }}>
                       {feature.title}
                     </Typography>
-                    <Typography variant="body1" sx={{ opacity: 0.9, lineHeight: 1.6 }}>
+                    <Typography variant="body1" sx={{ 
+                      color: professionalColors.textSecondary, 
+                      lineHeight: 1.6 
+                    }}>
                       {feature.desc}
                     </Typography>
                   </Paper>
@@ -607,9 +508,10 @@ const RoleSelection = () => {
         fullWidth
         PaperProps={{
           sx: {
-            background: professionalColors.gradient,
-            color: 'white',
-            borderRadius: 3
+            background: professionalColors.background,
+            color: professionalColors.textPrimary,
+            borderRadius: 3,
+            boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
           }
         }}
       >
@@ -619,25 +521,43 @@ const RoleSelection = () => {
               display: 'flex', 
               alignItems: 'center', 
               justifyContent: 'space-between',
-              borderBottom: '1px solid rgba(255,255,255,0.2)',
-              pb: 3
+              borderBottom: `1px solid ${professionalColors.border}`,
+              pb: 3,
+              background: alpha(professionalColors.primary, 0.02), // Consistent color
             }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)', width: 60, height: 60 }}>
-                  {selectedRole.icon}
+                <Avatar sx={{ 
+                  bgcolor: alpha(professionalColors.primary, 0.1), // Consistent color
+                  width: 60, 
+                  height: 60,
+                  color: professionalColors.primary, // Consistent color
+                  fontSize: '1.5rem',
+                  fontWeight: 'bold'
+                }}>
+                  {selectedRole.title.charAt(0)}
                 </Avatar>
                 <Box>
                   <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
                     {selectedRole.title}
                   </Typography>
-                  <Typography variant="body1" sx={{ opacity: 0.9, mt: 1 }}>
+                  <Typography variant="body1" sx={{ 
+                    color: professionalColors.textSecondary, 
+                    mt: 1 
+                  }}>
                     {selectedRole.description}
                   </Typography>
                 </Box>
               </Box>
-              <IconButton onClick={handleInfoClose} sx={{ color: 'white' }}>
-                <Close />
-              </IconButton>
+              <Button 
+                onClick={handleInfoClose} 
+                sx={{ 
+                  color: professionalColors.textSecondary,
+                  minWidth: 'auto',
+                  padding: '8px'
+                }}
+              >
+                Close
+              </Button>
             </DialogTitle>
 
             <DialogContent sx={{ py: 4 }}>
@@ -648,12 +568,32 @@ const RoleSelection = () => {
               <List sx={{ mb: 4 }}>
                 {selectedRole.features.map((feature, index) => (
                   <ListItem key={index} sx={{ px: 0 }}>
-                    <ListItemIcon sx={{ minWidth: 40 }}>
-                      <CheckCircle sx={{ color: 'white' }} />
-                    </ListItemIcon>
+                    <Box
+                      sx={{
+                        minWidth: 40,
+                        height: 24,
+                        borderRadius: '50%',
+                        background: alpha(professionalColors.primary, 0.1), // Consistent color
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: professionalColors.primary, // Consistent color
+                        fontWeight: 'bold',
+                        fontSize: '0.875rem',
+                        mr: 2
+                      }}
+                    >
+                      ✓
+                    </Box>
                     <ListItemText 
                       primary={feature}
-                      primaryTypographyProps={{ sx: { fontWeight: 500, fontSize: '1.1rem' } }}
+                      primaryTypographyProps={{ 
+                        sx: { 
+                          fontWeight: 500, 
+                          fontSize: '1.1rem',
+                          color: professionalColors.textPrimary 
+                        } 
+                      }}
                     />
                   </ListItem>
                 ))}
@@ -662,14 +602,20 @@ const RoleSelection = () => {
               {/* Testimonial Section */}
               <Paper sx={{ 
                 p: 3, 
-                background: 'rgba(255,255,255,0.1)', 
+                background: alpha(professionalColors.primary, 0.03), // Consistent color
                 borderRadius: 2,
-                border: '1px solid rgba(255,255,255,0.2)'
+                border: `1px solid ${alpha(professionalColors.primary, 0.1)}` // Consistent color
               }}>
-                <Typography variant="body2" sx={{ fontStyle: 'italic', mb: 1 }}>
+                <Typography variant="body2" sx={{ 
+                  fontStyle: 'italic', 
+                  mb: 1,
+                  color: professionalColors.textPrimary 
+                }}>
                   {selectedRole.testimonial}
                 </Typography>
-                <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                <Typography variant="caption" sx={{ 
+                  color: professionalColors.textSecondary 
+                }}>
                   — Satisfied Platform User
                 </Typography>
               </Paper>
@@ -678,23 +624,24 @@ const RoleSelection = () => {
             <DialogActions sx={{ 
               justifyContent: 'center', 
               pb: 4,
-              borderTop: '1px solid rgba(255,255,255,0.2)',
-              pt: 3
+              borderTop: `1px solid ${professionalColors.border}`,
+              pt: 3,
+              background: alpha(professionalColors.primary, 0.02), // Consistent color
             }}>
               <Button 
                 variant="contained" 
                 size="large"
                 onClick={() => handleRoleSelect(selectedRole.role)}
-                endIcon={<HowToReg />}
                 sx={{ 
-                  background: 'rgba(255,255,255,0.9)',
-                  color: professionalColors.primary,
+                  background: professionalColors.primary, // Consistent color
+                  color: 'white',
                   fontWeight: 'bold',
                   px: 4,
                   py: 1.5,
                   fontSize: '1.1rem',
+                  textTransform: 'none',
                   '&:hover': {
-                    background: 'white',
+                    background: professionalColors.primaryDark, // Consistent color
                     transform: 'scale(1.02)',
                   }
                 }}

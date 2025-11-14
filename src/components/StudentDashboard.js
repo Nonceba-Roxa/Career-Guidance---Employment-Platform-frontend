@@ -11,16 +11,6 @@ import {
   Stepper, Step, StepLabel, StepContent, Accordion, AccordionSummary, AccordionDetails,
   Fab, SpeedDial, SpeedDialAction, SpeedDialIcon, Rating, Tooltip
 } from '@mui/material';
-import {
-  School, Work, Description, Upload, Person, Send, CheckCircle, Error,
-  ExpandMore, Notifications, Dashboard, TrendingUp, CalendarToday,
-  LocationOn, AttachMoney, Schedule, Star, Bookmark, BookmarkBorder,
-  Download, Delete, Visibility, Email, Phone, LinkedIn,
-  ExpandLess, Share, FilterList, Lightbulb, Group, Assessment,
-  Psychology, EmojiEvents, Add, Menu, Close, AutoAwesome,
-  Rocket, Celebration, PsychologyAlt, Timeline, Analytics,
-  History, Warning, HowToReg, Assignment, Security
-} from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import { 
   collection, 
@@ -71,10 +61,52 @@ const fileToBase64 = (file) => {
 };
 
 const getFileIcon = (fileType) => {
-  if (fileType.includes('pdf')) return '📄';
-  if (fileType.includes('image')) return '🖼️';
-  if (fileType.includes('word') || fileType.includes('document')) return '📝';
-  return '📎';
+  if (fileType.includes('pdf')) return 'PDF';
+  if (fileType.includes('image')) return 'IMG';
+  if (fileType.includes('word') || fileType.includes('document')) return 'DOC';
+  return 'FILE';
+};
+
+// Predefined high school subjects
+const HIGH_SCHOOL_SUBJECTS = [
+  'Mathematics', 'English', 'Physics', 'Chemistry', 'Biology',
+  'History', 'Geography', 'Economics', 'Business Studies',
+  'Computer Science', 'Art', 'Music', 'Physical Education',
+  'French', 'German', 'Spanish', 'Accounting', 'Statistics'
+];
+
+// Grade options including A*
+const GRADE_OPTIONS = ['A*', 'A', 'B', 'C', 'D', 'E', 'F'];
+
+// Grade to numeric mapping including A*
+const GRADE_TO_NUMERIC = {
+  'A*': 95,
+  'A': 85,
+  'B': 75,
+  'C': 65,
+  'D': 55,
+  'E': 45,
+  'F': 35
+};
+
+// Professional color palette: White, Gray, Green accents
+const COLORS = {
+  primary: '#2E7D32', // Green - primary accent
+  secondary: '#4CAF50', // Light Green - secondary accent
+  background: '#FFFFFF', // White - main background
+  surface: '#F8F9FA', // Light Gray - cards/surface
+  border: '#E0E0E0', // Border gray
+  text: {
+    primary: '#212121', // Dark Gray - main text
+    secondary: '#757575', // Medium Gray - secondary text
+    disabled: '#9E9E9E' // Light Gray - disabled text
+  },
+  status: {
+    success: '#4CAF50',
+    warning: '#FF9800',
+    error: '#F44336',
+    info: '#2196F3'
+  }
 };
 
 const StudentDashboard = () => {
@@ -104,6 +136,8 @@ const StudentDashboard = () => {
   const [jobFilter, setJobFilter] = useState('all');
   const [admissionDecisionOpen, setAdmissionDecisionOpen] = useState(false);
   const [pendingAdmissionDecision, setPendingAdmissionDecision] = useState(null);
+  const [jobDecisionOpen, setJobDecisionOpen] = useState(false);
+  const [pendingJobDecision, setPendingJobDecision] = useState(null);
 
   // Profile states
   const [gpa, setGpa] = useState(profile?.gpa || '');
@@ -117,6 +151,9 @@ const StudentDashboard = () => {
   const [highSchoolGrades, setHighSchoolGrades] = useState(profile?.highSchoolGrades || {});
   const [qualifications, setQualifications] = useState(profile?.qualifications || []);
   const [newQualification, setNewQualification] = useState('');
+  const [selectedSubject, setSelectedSubject] = useState('');
+  const [grade, setGrade] = useState('');
+  const [educationLevel, setEducationLevel] = useState(profile?.educationLevel || 'high_school');
 
   // Document upload states
   const [file, setFile] = useState(null);
@@ -336,43 +373,283 @@ const StudentDashboard = () => {
     }
   }, [user]);
 
-  // Enhanced data loading with proper integration
-  const fetchData = useCallback(async () => {
-    if (!user) return;
+// Add this enhanced notifications fetching function to your StudentDashboard component
 
-    try {
-      setLoading(true);
-      
-      await Promise.all([
-        fetchInstitutions(),
-        fetchCourses(),
-        fetchFaculties(),
-        fetchJobs(),
-        fetchApplications(),
-        fetchJobApplications(),
-        fetchDocuments(),
-        fetchBookmarks()
-      ]);
-      
-    } catch (error) {
-      console.error('Fetch data error:', error);
-      enqueueSnackbar('Error loading dashboard data', { variant: 'error' });
-    } finally {
-      setLoading(false);
+// Enhanced notifications fetching with proper error handling
+const fetchNotifications = useCallback(async () => {
+  if (!user) return;
+  
+  try {
+    const q = query(
+      collection(db, 'notifications'),
+      where('userId', '==', user.uid),
+      orderBy('timestamp', 'desc')
+    );
+    
+    const unsubscribe = onSnapshot(q, 
+      (snapshot) => {
+        const notificationsData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          timestamp: doc.data().timestamp?.toDate?.() || new Date()
+        }));
+        
+        console.log('Fetched notifications:', notificationsData.length);
+        setNotifications(notificationsData);
+        
+        // Show snackbar for new unread notifications
+        const newUnread = notificationsData.filter(n => !n.read && 
+          new Date(n.timestamp) > new Date(Date.now() - 30000)); // Last 30 seconds
+        
+        newUnread.forEach(notification => {
+          enqueueSnackbar(`${notification.title}: ${notification.message}`, {
+            variant: 'info',
+            autoHideDuration: 5000,
+          });
+        });
+      },
+      (error) => {
+        console.error('Error in notifications listener:', error);
+        // Fallback: try to fetch notifications once
+        fetchNotificationsOnce();
+      }
+    );
+
+    return unsubscribe;
+  } catch (error) {
+    console.error('Error setting up notifications listener:', error);
+    // Fallback: try to fetch notifications once
+    fetchNotificationsOnce();
+  }
+}, [user, enqueueSnackbar]);
+
+// Fallback function to fetch notifications once
+const fetchNotificationsOnce = useCallback(async () => {
+  if (!user) return;
+  
+  try {
+    const q = query(
+      collection(db, 'notifications'),
+      where('userId', '==', user.uid),
+      orderBy('timestamp', 'desc')
+    );
+    
+    const snapshot = await getDocs(q);
+    const notificationsData = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      timestamp: doc.data().timestamp?.toDate?.() || new Date()
+    }));
+    
+    setNotifications(notificationsData);
+    console.log('Fetched notifications (fallback):', notificationsData.length);
+  } catch (error) {
+    console.error('Error fetching notifications (fallback):', error);
+    // Create sample notifications if none exist and collection might not exist yet
+    createSampleNotifications();
+  }
+}, [user]);
+
+// Enhanced function to create sample notifications
+const createSampleNotifications = useCallback(async () => {
+  if (!user) return;
+
+  try {
+    // Check if we already have notifications
+    if (notifications.length > 0) return;
+
+    const sampleNotifications = [
+      {
+        userId: user.uid,
+        type: 'welcome',
+        title: 'Welcome to Student Dashboard',
+        message: 'Complete your profile to get better course and job recommendations',
+        timestamp: serverTimestamp(),
+        read: false,
+        priority: 'medium'
+      },
+      {
+        userId: user.uid,
+        type: 'tip',
+        title: 'Quick Tip',
+        message: 'Upload your documents and complete your profile to improve your application chances',
+        timestamp: serverTimestamp(),
+        read: false,
+        priority: 'low'
+      }
+    ];
+
+    const createdNotifications = [];
+    for (const notification of sampleNotifications) {
+      const docRef = await addDoc(collection(db, 'notifications'), notification);
+      createdNotifications.push({ id: docRef.id, ...notification });
     }
-  }, [
-    user, 
-    fetchInstitutions, 
-    fetchCourses, 
-    fetchFaculties, 
-    fetchJobs, 
-    fetchApplications, 
-    fetchJobApplications, 
-    fetchDocuments, 
-    fetchBookmarks,
-    enqueueSnackbar
-  ]);
 
+    if (createdNotifications.length > 0) {
+      setNotifications(createdNotifications);
+      console.log('Created sample notifications:', createdNotifications.length);
+    }
+  } catch (error) {
+    console.error('Error creating sample notifications:', error);
+    // Even if we can't create in Firestore, set some local sample notifications
+    const localSampleNotifications = [
+      {
+        id: 'local-welcome-1',
+        type: 'welcome',
+        title: 'Welcome to Student Dashboard',
+        message: 'Complete your profile to get better course and job recommendations',
+        timestamp: new Date(),
+        read: false,
+        priority: 'medium'
+      }
+    ];
+    setNotifications(localSampleNotifications);
+  }
+}, [user, notifications.length]);
+
+// Enhanced mark as read function
+const markNotificationRead = async (notificationId) => {
+  try {
+    await updateDoc(doc(db, 'notifications', notificationId), {
+      read: true,
+      readAt: serverTimestamp()
+    });
+    console.log('Marked notification as read:', notificationId);
+  } catch (error) {
+    console.error('Error marking notification as read:', error);
+    // Fallback to local state update if Firestore update fails
+    setNotifications(prev => 
+      prev.map(notif => 
+        notif.id === notificationId ? { ...notif, read: true } : notif
+      )
+    );
+  }
+};
+
+// Enhanced mark all as read
+const markAllNotificationsRead = async () => {
+  try {
+    const batch = writeBatch(db);
+    const unreadNotifications = notifications.filter(notif => !notif.read);
+    
+    unreadNotifications.forEach(notification => {
+      if (notification.id && !notification.id.startsWith('local-')) {
+        const notificationRef = doc(db, 'notifications', notification.id);
+        batch.update(notificationRef, { 
+          read: true,
+          readAt: serverTimestamp()
+        });
+      }
+    });
+    
+    await batch.commit();
+    enqueueSnackbar(`Marked ${unreadNotifications.length} notifications as read`, { variant: 'success' });
+    
+    // Update local state
+    setNotifications(prev => prev.map(notif => ({ ...notif, read: true })));
+  } catch (error) {
+    console.error('Error marking all notifications as read:', error);
+    // Fallback to local state update
+    setNotifications(prev => prev.map(notif => ({ ...notif, read: true })));
+    enqueueSnackbar('Notifications marked as read locally', { variant: 'info' });
+  }
+};
+
+// Enhanced clear all notifications
+const clearAllNotifications = async () => {
+  try {
+    const batch = writeBatch(db);
+    const notificationsToDelete = notifications.filter(notification => 
+      notification.id && !notification.id.startsWith('local-')
+    );
+    
+    notificationsToDelete.forEach(notification => {
+      const notificationRef = doc(db, 'notifications', notification.id);
+      batch.delete(notificationRef);
+    });
+    
+    await batch.commit();
+    enqueueSnackbar(`Cleared ${notificationsToDelete.length} notifications`, { variant: 'success' });
+    
+    // Clear local state
+    setNotifications([]);
+  } catch (error) {
+    console.error('Error clearing notifications:', error);
+    // Fallback to local state clear
+    setNotifications([]);
+    enqueueSnackbar('Notifications cleared locally', { variant: 'info' });
+  }
+};
+
+// Function to create notification (useful for testing)
+const createNotification = async (notificationData) => {
+  try {
+    const notification = {
+      userId: user.uid,
+      timestamp: serverTimestamp(),
+      read: false,
+      priority: 'medium',
+      ...notificationData
+    };
+
+    const docRef = await addDoc(collection(db, 'notifications'), notification);
+    console.log('Created notification:', docRef.id);
+    return docRef.id;
+  } catch (error) {
+    console.error('Error creating notification:', error);
+    // Fallback to local notification
+    const localNotification = {
+      id: 'local-' + Date.now(),
+      ...notificationData,
+      timestamp: new Date(),
+      read: false
+    };
+    setNotifications(prev => [localNotification, ...prev]);
+    return localNotification.id;
+  }
+};
+
+// Enhanced data loading
+const fetchData = useCallback(async () => {
+  if (!user) return;
+
+  try {
+    setLoading(true);
+    console.log('Starting data fetch...');
+    
+    await Promise.all([
+      fetchInstitutions(),
+      fetchCourses(),
+      fetchFaculties(),
+      fetchJobs(),
+      fetchApplications(),
+      fetchJobApplications(),
+      fetchDocuments(),
+      fetchBookmarks(),
+      fetchNotifications() // This will set up the real-time listener
+    ]);
+    
+    console.log('Data fetch completed');
+    
+  } catch (error) {
+    console.error('Fetch data error:', error);
+    enqueueSnackbar('Error loading dashboard data', { variant: 'error' });
+  } finally {
+    setLoading(false);
+  }
+}, [
+  user, 
+  fetchInstitutions, 
+  fetchCourses, 
+  fetchFaculties, 
+  fetchJobs, 
+  fetchApplications, 
+  fetchJobApplications, 
+  fetchDocuments, 
+  fetchBookmarks,
+  fetchNotifications,
+  enqueueSnackbar
+]);
   // Calculate dashboard statistics
   const calculateDashboardStats = useCallback(() => {
     const totalApps = applications.length + jobApplications.length;
@@ -423,7 +700,17 @@ const StudentDashboard = () => {
     }
   }, [applications]);
 
-  // FIXED: Working admission decision handler
+  // Check for job offers and prompt for decision
+  const checkJobOffers = useCallback(() => {
+    const jobOffers = jobApplications.filter(app => app.status === 'offered' && !app.decisionMade);
+    
+    if (jobOffers.length > 0) {
+      setPendingJobDecision(jobOffers);
+      setJobDecisionOpen(true);
+    }
+  }, [jobApplications]);
+
+  // FIXED: Working admission decision handler with auto-delete for rejected applications
   const handleAdmissionDecision = async (selectedApplicationId) => {
     try {
       console.log('Processing admission decision for:', selectedApplicationId);
@@ -452,16 +739,11 @@ const StudentDashboard = () => {
             decisionDate: serverTimestamp(),
             status: 'confirmed'
           });
-          console.log(`✅ Confirmed: ${application.courseName}`);
+          console.log(`Confirmed: ${application.courseName}`);
         } else {
-          // Other applications - reject them
-          await updateDoc(applicationRef, {
-            decisionMade: true,
-            finalChoice: false,
-            status: 'rejected_by_student',
-            decisionDate: serverTimestamp()
-          });
-          console.log(`❌ Rejected: ${application.courseName}`);
+          // Other applications - delete them from the system
+          await deleteDoc(applicationRef);
+          console.log(`Deleted: ${application.courseName}`);
         }
       }
 
@@ -472,23 +754,122 @@ const StudentDashboard = () => {
       setAdmissionDecisionOpen(false);
       setPendingAdmissionDecision(null);
       
-      enqueueSnackbar('Admission decision saved successfully!', { variant: 'success' });
+      enqueueSnackbar('Admission decision saved successfully! Rejected applications have been removed.', { variant: 'success' });
       
-      // Add notification
-      setNotifications(prev => [{
-        id: `decision-${Date.now()}`,
+      // Add notification to Firestore
+      await addDoc(collection(db, 'notifications'), {
+        userId: user.uid,
         type: 'admission_decision',
-        title: '✅ Decision Recorded',
+        title: 'Decision Recorded',
         message: 'Your admission choice has been recorded successfully',
-        timestamp: new Date(),
+        timestamp: serverTimestamp(),
         read: false
-      }, ...prev]);
+      });
 
     } catch (error) {
       console.error('Error handling admission decision:', error);
       enqueueSnackbar(`Failed to save decision: ${error.message}`, { variant: 'error' });
     }
   };
+
+  // Job decision handler with auto-delete for declined offers
+  const handleJobDecision = async (jobAppId, accept) => {
+    try {
+      const jobAppRef = doc(db, 'jobApplications', jobAppId);
+      
+      if (accept) {
+        // Accept the job offer
+        await updateDoc(jobAppRef, {
+          decisionMade: true,
+          status: 'accepted',
+          decisionDate: serverTimestamp()
+        });
+
+        // Delete all other pending job applications
+        const otherJobApps = jobApplications.filter(app => 
+          app.id !== jobAppId && app.status === 'pending'
+        );
+
+        for (const app of otherJobApps) {
+          await deleteDoc(doc(db, 'jobApplications', app.id));
+        }
+
+        enqueueSnackbar('Job offer accepted! Other pending applications have been removed.', { variant: 'success' });
+      } else {
+        // Decline the job offer - delete it
+        await deleteDoc(jobAppRef);
+        enqueueSnackbar('Job offer declined and removed from your applications.', { variant: 'info' });
+      }
+
+      await fetchJobApplications();
+      
+      setJobDecisionOpen(false);
+      setPendingJobDecision(null);
+      
+      // Add notification to Firestore
+      await addDoc(collection(db, 'notifications'), {
+        userId: user.uid,
+        type: 'job_decision',
+        title: `Job Offer ${accept ? 'Accepted' : 'Declined'}`,
+        message: `You have ${accept ? 'accepted' : 'declined'} the job offer`,
+        timestamp: serverTimestamp(),
+        read: false
+      });
+
+    } catch (error) {
+      console.error('Error handling job decision:', error);
+      enqueueSnackbar(`Failed to save decision: ${error.message}`, { variant: 'error' });
+    }
+  };
+
+  // Auto-apply for jobs when student completes education
+  const autoApplyForJobs = useCallback(async () => {
+    if (!user || !profile || educationLevel !== 'completed') return;
+
+    try {
+      const relevantJobs = jobs.filter(job => {
+        // Only apply to jobs that match the student's field
+        if (job.requirements?.field && profile.field) {
+          return job.requirements.field.toLowerCase().includes(profile.field.toLowerCase()) ||
+                 profile.field.toLowerCase().includes(job.requirements.field.toLowerCase());
+        }
+        return false;
+      });
+
+      const appliedJobIds = jobApplications.map(app => app.jobId);
+      const jobsToApply = relevantJobs.filter(job => 
+        !appliedJobIds.includes(job.id) && 
+        calculateJobMatch(job) >= 70
+      );
+
+      for (const job of jobsToApply) {
+        const applicationData = {
+          userId: user.uid,
+          studentName: profile?.name || user.displayName || 'Unknown Student',
+          studentEmail: user.email,
+          jobId: job.id,
+          jobTitle: job.title,
+          companyId: job.companyId,
+          companyName: job.companyName,
+          appliedAt: serverTimestamp(),
+          status: 'pending',
+          matchScore: calculateJobMatch(job),
+          coverLetter: 'Auto-applied based on completed education profile',
+          resume: documents.find(doc => doc.fileType === 'resume')?.id || null,
+          autoApplied: true
+        };
+
+        await addDoc(collection(db, 'jobApplications'), applicationData);
+      }
+
+      if (jobsToApply.length > 0) {
+        enqueueSnackbar(`Auto-applied to ${jobsToApply.length} relevant jobs`, { variant: 'info' });
+        await fetchJobApplications();
+      }
+    } catch (error) {
+      console.error('Error auto-applying for jobs:', error);
+    }
+  }, [user, profile, educationLevel, jobs, jobApplications, documents, enqueueSnackbar, fetchJobApplications]);
 
   // Initialize all data loaders
   useEffect(() => {
@@ -504,7 +885,15 @@ const StudentDashboard = () => {
 
   useEffect(() => {
     checkMultipleAdmissions();
-  }, [applications, checkMultipleAdmissions]);
+    checkJobOffers();
+  }, [applications, jobApplications, checkMultipleAdmissions, checkJobOffers]);
+
+  // Auto-apply for jobs when education level changes to completed
+  useEffect(() => {
+    if (educationLevel === 'completed') {
+      autoApplyForJobs();
+    }
+  }, [educationLevel, autoApplyForJobs]);
 
   // Initialize profile data when profile changes
   useEffect(() => {
@@ -518,10 +907,11 @@ const StudentDashboard = () => {
       setLinkedin(profile.linkedin || '');
       setHighSchoolGrades(profile.highSchoolGrades || {});
       setQualifications(profile.qualifications || []);
+      setEducationLevel(profile.educationLevel || 'high_school');
     }
   }, [profile]);
 
-  // Enhanced course qualification check
+  // Enhanced course qualification check with letter grades including A*
   const checkCourseQualification = (course) => {
     if (!profile || !course.requirements) return true;
     
@@ -532,12 +922,18 @@ const StudentDashboard = () => {
       return false;
     }
     
-    // Check high school grades
+    // Check high school grades with letter grade conversion including A*
     if (requirements.minGrades && profile.highSchoolGrades) {
       for (const [subject, minGrade] of Object.entries(requirements.minGrades)) {
         const studentGrade = profile.highSchoolGrades[subject];
-        if (studentGrade && studentGrade < minGrade) {
-          return false;
+        if (studentGrade) {
+          // Convert letter grade to numeric for comparison including A*
+          const studentNumericGrade = GRADE_TO_NUMERIC[studentGrade] || 0;
+          const minNumericGrade = GRADE_TO_NUMERIC[minGrade] || 0;
+          
+          if (studentNumericGrade < minNumericGrade) {
+            return false;
+          }
         }
       }
     }
@@ -550,7 +946,7 @@ const StudentDashboard = () => {
     return true;
   };
 
-  // Enhanced job match calculation
+  // Enhanced job match calculation - STRICTLY by field
   const calculateJobMatch = (job) => {
     if (!profile || !job) return 0;
     
@@ -558,34 +954,38 @@ const StudentDashboard = () => {
     let criteriaMatched = 0;
     let totalCriteria = 0;
 
-    // GPA match (30%)
+    // Field match (60% - STRICT MATCH)
+    if (job.requirements?.field && profile.field) {
+      totalCriteria++;
+      const jobField = job.requirements.field.toLowerCase();
+      const userField = profile.field.toLowerCase();
+      
+      // Strict field matching
+      if (userField.includes(jobField) || jobField.includes(userField)) {
+        criteriaMatched++;
+        matchScore += 60;
+      }
+    }
+
+    // GPA match (20%)
     if (job.requirements?.minGPA) {
       totalCriteria++;
       if (profile.gpa && profile.gpa >= job.requirements.minGPA) {
-        criteriaMatched++;
-        matchScore += 30;
-      }
-    }
-
-    // Field match (30%)
-    if (job.requirements?.field) {
-      totalCriteria++;
-      if (profile.field && profile.field.toLowerCase().includes(job.requirements.field.toLowerCase())) {
-        criteriaMatched++;
-        matchScore += 30;
-      }
-    }
-
-    // Experience match (20%)
-    if (job.requirements?.minExperience) {
-      totalCriteria++;
-      if (profile.experience && profile.experience >= job.requirements.minExperience) {
         criteriaMatched++;
         matchScore += 20;
       }
     }
 
-    // Skills match (20%)
+    // Experience match (10%)
+    if (job.requirements?.minExperience) {
+      totalCriteria++;
+      if (profile.experience && profile.experience >= job.requirements.minExperience) {
+        criteriaMatched++;
+        matchScore += 10;
+      }
+    }
+
+    // Skills match (10%)
     if (job.requirements?.skills && Array.isArray(job.requirements.skills)) {
       totalCriteria++;
       const userSkills = profile.skills || [];
@@ -596,11 +996,11 @@ const StudentDashboard = () => {
       );
       if (matchedSkills.length > 0) {
         criteriaMatched++;
-        matchScore += (matchedSkills.length / job.requirements.skills.length) * 20;
+        matchScore += (matchedSkills.length / job.requirements.skills.length) * 10;
       }
     }
 
-    return totalCriteria === 0 ? 50 : Math.min(100, Math.round(matchScore));
+    return totalCriteria === 0 ? 0 : Math.min(100, Math.round(matchScore));
   };
 
   // Enhanced profile update
@@ -627,6 +1027,7 @@ const StudentDashboard = () => {
         linkedin: linkedin.trim(),
         highSchoolGrades: highSchoolGrades,
         qualifications: qualifications,
+        educationLevel: educationLevel,
         profileCompleted: true,
         lastUpdated: serverTimestamp()
       };
@@ -838,7 +1239,7 @@ const StudentDashboard = () => {
                   height: auto; 
                 }
                 .download-btn {
-                  background: #1976d2;
+                  background: ${COLORS.primary};
                   color: white;
                   padding: 10px 20px;
                   border: none;
@@ -847,7 +1248,7 @@ const StudentDashboard = () => {
                   margin-top: 15px;
                 }
                 .download-btn:hover {
-                  background: #1565c0;
+                  background: ${COLORS.secondary};
                 }
               </style>
             </head>
@@ -950,7 +1351,7 @@ const StudentDashboard = () => {
     }
   };
 
-  // Calculate course match percentage
+  // Calculate course match percentage with letter grades including A*
   const calculateCourseMatch = (course) => {
     if (!profile || !course.requirements) return 50;
     
@@ -979,7 +1380,15 @@ const StudentDashboard = () => {
       let gradesMatch = true;
       for (const [subject, minGrade] of Object.entries(course.requirements.minGrades)) {
         const studentGrade = profile.highSchoolGrades[subject];
-        if (!studentGrade || studentGrade < minGrade) {
+        if (studentGrade) {
+          const studentNumericGrade = GRADE_TO_NUMERIC[studentGrade] || 0;
+          const minNumericGrade = GRADE_TO_NUMERIC[minGrade] || 0;
+          
+          if (studentNumericGrade < minNumericGrade) {
+            gradesMatch = false;
+            break;
+          }
+        } else {
           gradesMatch = false;
           break;
         }
@@ -993,10 +1402,25 @@ const StudentDashboard = () => {
     return totalCriteria === 0 ? 50 : Math.min(100, Math.round(matchScore));
   };
 
-  // Job application
+  // Job application - ONLY ALLOW IF FIELD MATCHES
   const applyForJob = async (job) => {
     try {
       const matchScore = calculateJobMatch(job);
+
+      // STRICT FIELD VALIDATION
+      if (!profile?.field || !job.requirements?.field) {
+        enqueueSnackbar('Cannot apply: Field information missing', { variant: 'error' });
+        return;
+      }
+
+      const jobField = job.requirements.field.toLowerCase();
+      const userField = profile.field.toLowerCase();
+      
+      // Strict field matching - only allow if fields match
+      if (!userField.includes(jobField) && !jobField.includes(userField)) {
+        enqueueSnackbar(`This job requires ${job.requirements.field} field. Your field is ${profile.field}`, { variant: 'error' });
+        return;
+      }
 
       if (matchScore < 50) {
         enqueueSnackbar('Your profile does not meet the minimum requirements for this job', { variant: 'warning' });
@@ -1081,27 +1505,12 @@ const StudentDashboard = () => {
     }
   };
 
-  // Mark notification as read
-  const markNotificationRead = (notificationId) => {
-    setNotifications(prev => 
-      prev.map(notif => 
-        notif.id === notificationId ? { ...notif, read: true } : notif
-      )
-    );
-  };
-
-  // Clear all notifications
-  const clearAllNotifications = () => {
-    setNotifications([]);
-    enqueueSnackbar('All notifications cleared', { variant: 'info' });
-  };
-
   // Speed dial actions
   const speedDialActions = [
-    { icon: <School />, name: 'Quick Apply', action: () => setTabValue(1) },
-    { icon: <Work />, name: 'Find Jobs', action: () => setTabValue(2) },
-    { icon: <Upload />, name: 'Upload Document', action: () => setTabValue(4) },
-    { icon: <Person />, name: 'Update Profile', action: () => setTabValue(3) },
+    { name: 'Quick Apply', action: () => setTabValue(1) },
+    { name: 'Find Jobs', action: () => setTabValue(2) },
+    { name: 'Upload Document', action: () => setTabValue(4) },
+    { name: 'Update Profile', action: () => setTabValue(3) },
   ];
 
   // Filter courses by selected institution
@@ -1130,10 +1539,21 @@ const StudentDashboard = () => {
     }
   };
 
-  // Filter jobs
+  // Filter jobs - ONLY SHOW JOBS THAT MATCH STUDENT'S FIELD
   const getFilteredJobs = () => {
     let filtered = jobs;
     
+    // First filter by field match
+    if (profile?.field) {
+      filtered = filtered.filter(job => {
+        if (!job.requirements?.field) return false;
+        const jobField = job.requirements.field.toLowerCase();
+        const userField = profile.field.toLowerCase();
+        return userField.includes(jobField) || jobField.includes(userField);
+      });
+    }
+    
+    // Then apply additional filters
     switch (jobFilter) {
       case 'high_match':
         filtered = filtered.filter(job => calculateJobMatch(job) >= 80);
@@ -1184,27 +1604,25 @@ const StudentDashboard = () => {
       case 'rejected': return 'error';
       case 'pending': return 'warning';
       case 'rejected_by_student': return 'default';
+      case 'offered': return 'success';
+      case 'accepted': return 'success';
+      case 'declined': return 'error';
       default: return 'default';
     }
   };
 
-  // Add high school grade
+  // Add high school grade with predefined subjects and letter grades including A*
   const addHighSchoolGrade = () => {
-    const subjectInput = document.getElementById('subject-input');
-    const gradeInput = document.getElementById('grade-input');
-    const subject = subjectInput?.value.trim();
-    const grade = parseFloat(gradeInput?.value);
-
-    if (subject && !isNaN(grade) && grade >= 0 && grade <= 100) {
+    if (selectedSubject && grade) {
       setHighSchoolGrades(prev => ({
         ...prev,
-        [subject]: grade
+        [selectedSubject]: grade
       }));
-      subjectInput.value = '';
-      gradeInput.value = '';
+      setSelectedSubject('');
+      setGrade('');
       enqueueSnackbar('Grade added successfully!', { variant: 'success' });
     } else {
-      enqueueSnackbar('Please enter valid subject and grade (0-100)', { variant: 'error' });
+      enqueueSnackbar('Please select a subject and grade', { variant: 'error' });
     }
   };
 
@@ -1250,7 +1668,7 @@ const StudentDashboard = () => {
     return (
       <Container sx={{ mt: 4, display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '80vh' }}>
         <Box sx={{ textAlign: 'center' }}>
-          <CircularProgress size={60} sx={{ mb: 2 }} />
+          <CircularProgress size={60} sx={{ mb: 2, color: COLORS.primary }} />
           <Typography variant="h6" gutterBottom>Loading your dashboard...</Typography>
           <Typography variant="body2" color="text.secondary">
             Preparing your personalized student experience
@@ -1261,12 +1679,12 @@ const StudentDashboard = () => {
   }
 
   return (
-    <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
+    <Container maxWidth="xl" sx={{ mt: 2, mb: 4, backgroundColor: COLORS.background, minHeight: '100vh' }}>
       {/* Header with Enhanced Stats */}
       <Paper sx={{ 
         p: 4, 
         mb: 3, 
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', 
+        background: `linear-gradient(135deg, ${COLORS.primary} 0%, ${COLORS.secondary} 100%)`, 
         color: 'white',
         position: 'relative',
         overflow: 'hidden'
@@ -1294,12 +1712,12 @@ const StudentDashboard = () => {
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
             <Box>
               <Typography variant="h3" gutterBottom sx={{ fontWeight: 'bold', fontSize: { xs: '2rem', md: '2.5rem' } }}>
-                🎓 Student Dashboard
+                Student Dashboard
               </Typography>
-              <Typography variant="h5" sx={{ opacity: 0.9, mb: 1 }}>
+              <Typography variant="h5" sx={{ mb: 1 }}>
                 Welcome back, {profile?.name || 'Student'}!
               </Typography>
-              <Typography variant="body1" sx={{ opacity: 0.8 }}>
+              <Typography variant="body1" sx={{ opacity: 0.9 }}>
                 {profile?.field || 'No field specified'} • GPA: {profile?.gpa || 'Not set'} • {profile?.experience || 0} years experience
               </Typography>
             </Box>
@@ -1315,15 +1733,29 @@ const StudentDashboard = () => {
                   } 
                 }}
               >
-                <Notifications sx={{ fontSize: 30, color: 'white' }} />
+                <Box sx={{ 
+                  width: 40, 
+                  height: 40, 
+                  bgcolor: 'rgba(255,255,255,0.2)', 
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white',
+                  fontWeight: 'bold'
+                }}>
+                  N
+                </Box>
               </Badge>
               <Avatar sx={{ 
                 width: 80, 
                 height: 80, 
                 bgcolor: 'rgba(255,255,255,0.2)',
-                border: '3px solid rgba(255,255,255,0.3)'
+                border: '3px solid rgba(255,255,255,0.3)',
+                fontSize: '2rem',
+                fontWeight: 'bold'
               }}>
-                <Person sx={{ fontSize: 40 }} />
+                {profile?.name?.charAt(0) || 'S'}
               </Avatar>
             </Box>
           </Box>
@@ -1331,43 +1763,43 @@ const StudentDashboard = () => {
           {/* Enhanced Stats Grid */}
           <Grid container spacing={3}>
             <Grid item xs={6} sm={3}>
-              <Box sx={{ textAlign: 'center', p: 2, background: 'rgba(255,255,255,0.1)', borderRadius: 2 }}>
+              <Box sx={{ textAlign: 'center', p: 2, background: 'rgba(255,255,255,0.15)', borderRadius: 2 }}>
                 <Typography variant="h4" sx={{ fontWeight: 'bold' }}>{dashboardStats.totalApplications}</Typography>
                 <Typography variant="body2">Total Applications</Typography>
               </Box>
             </Grid>
             <Grid item xs={6} sm={3}>
-              <Box sx={{ textAlign: 'center', p: 2, background: 'rgba(255,255,255,0.1)', borderRadius: 2 }}>
+              <Box sx={{ textAlign: 'center', p: 2, background: 'rgba(255,255,255,0.15)', borderRadius: 2 }}>
                 <Typography variant="h4" sx={{ fontWeight: 'bold' }}>{dashboardStats.admissionRate}%</Typography>
                 <Typography variant="body2">Admission Rate</Typography>
               </Box>
             </Grid>
             <Grid item xs={6} sm={3}>
-              <Box sx={{ textAlign: 'center', p: 2, background: 'rgba(255,255,255,0.1)', borderRadius: 2 }}>
+              <Box sx={{ textAlign: 'center', p: 2, background: 'rgba(255,255,255,0.15)', borderRadius: 2 }}>
                 <Typography variant="h4" sx={{ fontWeight: 'bold' }}>{dashboardStats.avgMatchScore}%</Typography>
                 <Typography variant="body2">Avg Match Score</Typography>
               </Box>
             </Grid>
             <Grid item xs={6} sm={3}>
-              <Box sx={{ textAlign: 'center', p: 2, background: 'rgba(255,255,255,0.1)', borderRadius: 2 }}>
+              <Box sx={{ textAlign: 'center', p: 2, background: 'rgba(255,255,255,0.15)', borderRadius: 2 }}>
                 <Typography variant="h4" sx={{ fontWeight: 'bold' }}>{dashboardStats.profileCompletion}%</Typography>
                 <Typography variant="body2">Profile Complete</Typography>
               </Box>
             </Grid>
             <Grid item xs={6} sm={4}>
-              <Box sx={{ textAlign: 'center', p: 2, background: 'rgba(255,255,255,0.1)', borderRadius: 2 }}>
+              <Box sx={{ textAlign: 'center', p: 2, background: 'rgba(255,255,255,0.15)', borderRadius: 2 }}>
                 <Typography variant="h4" sx={{ fontWeight: 'bold' }}>{dashboardStats.qualifiedJobs}</Typography>
                 <Typography variant="body2">Qualified Jobs</Typography>
               </Box>
             </Grid>
             <Grid item xs={6} sm={4}>
-              <Box sx={{ textAlign: 'center', p: 2, background: 'rgba(255,255,255,0.1)', borderRadius: 2 }}>
+              <Box sx={{ textAlign: 'center', p: 2, background: 'rgba(255,255,255,0.15)', borderRadius: 2 }}>
                 <Typography variant="h4" sx={{ fontWeight: 'bold' }}>{dashboardStats.pendingApplications}</Typography>
                 <Typography variant="body2">Pending Applications</Typography>
               </Box>
             </Grid>
             <Grid item xs={6} sm={4}>
-              <Box sx={{ textAlign: 'center', p: 2, background: 'rgba(255,255,255,0.1)', borderRadius: 2 }}>
+              <Box sx={{ textAlign: 'center', p: 2, background: 'rgba(255,255,255,0.15)', borderRadius: 2 }}>
                 <Typography variant="h4" sx={{ fontWeight: 'bold' }}>{documents.length}</Typography>
                 <Typography variant="body2">Documents</Typography>
               </Box>
@@ -1376,7 +1808,7 @@ const StudentDashboard = () => {
         </Box>
       </Paper>
 
-      {/* Multiple Admission Decision Dialog - FIXED AND WORKING */}
+      {/* Multiple Admission Decision Dialog */}
       <Dialog
         open={admissionDecisionOpen}
         onClose={() => setAdmissionDecisionOpen(false)}
@@ -1384,21 +1816,33 @@ const StudentDashboard = () => {
         fullWidth
       >
         <DialogTitle>
-          <Typography variant="h5" color="primary">
-            🎉 Multiple Admission Offers!
+          <Typography variant="h5" color="primary" sx={{ color: COLORS.primary }}>
+            Multiple Admission Offers
           </Typography>
         </DialogTitle>
 
         <DialogContent>
           <Typography variant="body1" gutterBottom>
-            Congratulations! You've been admitted to multiple institutions. Please select one institution to attend:
+            Congratulations! You have been admitted to multiple institutions. Please select one institution to attend:
           </Typography>
 
           <List>
             {pendingAdmissionDecision?.map((application) => (
               <ListItem key={application.id} divider sx={{ alignItems: "flex-start" }}>
                 <ListItemIcon>
-                  <School color="success" />
+                  <Box sx={{ 
+                    width: 40, 
+                    height: 40, 
+                    bgcolor: `${COLORS.primary}20`, 
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: COLORS.primary,
+                    fontWeight: 'bold'
+                  }}>
+                    C
+                  </Box>
                 </ListItemIcon>
                 <ListItemText
                   primary={application.courseName}
@@ -1414,11 +1858,10 @@ const StudentDashboard = () => {
                 <Button
                   variant="contained"
                   onClick={() => handleAdmissionDecision(application.id)}
-                  startIcon={<CheckCircle />}
                   sx={{ 
-                    backgroundColor: '#4CAF50',
+                    backgroundColor: COLORS.primary,
                     '&:hover': {
-                      backgroundColor: '#45a049',
+                      backgroundColor: COLORS.secondary,
                     }
                   }}
                 >
@@ -1430,7 +1873,7 @@ const StudentDashboard = () => {
 
           <Alert severity="warning" sx={{ mt: 2 }}>
             <Typography variant="body2">
-              <strong>Important:</strong> Selecting one institution will automatically decline offers from other institutions.
+              <strong>Important:</strong> Selecting one institution will automatically remove other applications from the system.
             </Typography>
           </Alert>
         </DialogContent>
@@ -1439,6 +1882,97 @@ const StudentDashboard = () => {
           <Button 
             onClick={() => setAdmissionDecisionOpen(false)}
             variant="outlined"
+            sx={{ borderColor: COLORS.text.secondary, color: COLORS.text.secondary }}
+          >
+            Decide Later
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Job Offer Decision Dialog */}
+      <Dialog
+        open={jobDecisionOpen}
+        onClose={() => setJobDecisionOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Typography variant="h5" color="primary" sx={{ color: COLORS.primary }}>
+            Job Offer Received
+          </Typography>
+        </DialogTitle>
+
+        <DialogContent>
+          <Typography variant="body1" gutterBottom>
+            Congratulations! You have received a job offer. Please review and make your decision:
+          </Typography>
+
+          <List>
+            {pendingJobDecision?.map((jobApp) => (
+              <ListItem key={jobApp.id} divider sx={{ alignItems: "flex-start" }}>
+                <ListItemIcon>
+                  <Box sx={{ 
+                    width: 40, 
+                    height: 40, 
+                    bgcolor: `${COLORS.primary}20`, 
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: COLORS.primary,
+                    fontWeight: 'bold'
+                  }}>
+                    J
+                  </Box>
+                </ListItemIcon>
+                <ListItemText
+                  primary={jobApp.jobTitle}
+                  secondary={
+                    <Box>
+                      <Typography variant="body2">{jobApp.companyName}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Match Score: {jobApp.matchScore}%
+                      </Typography>
+                    </Box>
+                  }
+                />
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button
+                    variant="contained"
+                    onClick={() => handleJobDecision(jobApp.id, true)}
+                    sx={{ 
+                      backgroundColor: COLORS.primary,
+                      '&:hover': {
+                        backgroundColor: COLORS.secondary,
+                      }
+                    }}
+                  >
+                    Accept
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    onClick={() => handleJobDecision(jobApp.id, false)}
+                  >
+                    Decline
+                  </Button>
+                </Box>
+              </ListItem>
+            ))}
+          </List>
+
+          <Alert severity="info" sx={{ mt: 2 }}>
+            <Typography variant="body2">
+              <strong>Note:</strong> Accepting this offer will automatically remove other pending job applications.
+            </Typography>
+          </Alert>
+        </DialogContent>
+
+        <DialogActions>
+          <Button 
+            onClick={() => setJobDecisionOpen(false)}
+            variant="outlined"
+            sx={{ borderColor: COLORS.text.secondary, color: COLORS.text.secondary }}
           >
             Decide Later
           </Button>
@@ -1446,25 +1980,37 @@ const StudentDashboard = () => {
       </Dialog>
 
       {/* Main Content with Tabs */}
-      <Paper sx={{ width: '100%', mb: 3, position: 'relative' }}>
+      <Paper sx={{ width: '100%', mb: 3, backgroundColor: COLORS.background }}>
         <Tabs
           value={tabValue}
           onChange={(e, newValue) => setTabValue(newValue)}
           variant="scrollable"
           scrollButtons="auto"
+          sx={{
+            backgroundColor: COLORS.surface,
+            borderBottom: `1px solid ${COLORS.border}`,
+            '& .MuiTab-root': {
+              color: COLORS.text.secondary,
+              '&.Mui-selected': {
+                color: COLORS.primary,
+              },
+            },
+            '& .MuiTabs-indicator': {
+              backgroundColor: COLORS.primary,
+            },
+          }}
         >
-          <Tab icon={<Dashboard />} label="Overview" {...a11yProps(0)} />
-          <Tab icon={<School />} label={`Courses (${courses.length})`} {...a11yProps(1)} />
-          <Tab icon={<Work />} label={`Jobs (${jobs.length})`} {...a11yProps(2)} />
-          <Tab icon={<Person />} label="Profile" {...a11yProps(3)} />
-          <Tab icon={<Description />} label={`Documents (${documents.length})`} {...a11yProps(4)} />
+          <Tab label="Overview" {...a11yProps(0)} />
+          <Tab label={`Courses (${courses.length})`} {...a11yProps(1)} />
+          <Tab label={`Jobs (${getFilteredJobs().length})`} {...a11yProps(2)} />
+          <Tab label="Profile" {...a11yProps(3)} />
+          <Tab label={`Documents (${documents.length})`} {...a11yProps(4)} />
           <Tab 
-            icon={
+            label={
               <Badge badgeContent={notifications.filter(n => !n.read).length} color="error">
-                <Notifications />
+                Notifications
               </Badge>
             } 
-            label="Notifications" 
             {...a11yProps(5)}
           />
         </Tabs>
@@ -1474,14 +2020,12 @@ const StudentDashboard = () => {
           <Grid container spacing={3}>
             {/* Quick Stats & Progress */}
             <Grid item xs={12} md={8}>
-              <Card sx={{ p: 3, mb: 3 }}>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Timeline /> Application Progress
-                </Typography>
+              <Card sx={{ p: 3, mb: 3, backgroundColor: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+                <Typography variant="h6" gutterBottom sx={{ color: COLORS.primary, fontWeight: 'bold' }}>Application Progress</Typography>
                 <Stepper orientation="vertical">
                   <Step active={true} completed={dashboardStats.profileCompletion >= 50}>
                     <StepLabel>
-                      <Typography variant="subtitle1">Profile Completion</Typography>
+                      <Typography variant="subtitle1" color={COLORS.text.primary}>Profile Completion</Typography>
                     </StepLabel>
                     <StepContent>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -1490,28 +2034,28 @@ const StudentDashboard = () => {
                           value={dashboardStats.profileCompletion} 
                           sx={{ flex: 1, height: 8, borderRadius: 4 }}
                         />
-                        <Typography variant="body2">{Math.round(dashboardStats.profileCompletion)}%</Typography>
+                        <Typography variant="body2" color={COLORS.text.primary}>{Math.round(dashboardStats.profileCompletion)}%</Typography>
                       </Box>
                     </StepContent>
                   </Step>
                   <Step active={applications.length > 0} completed={applications.some(app => app.status === 'admitted')}>
                     <StepLabel>
-                      <Typography variant="subtitle1">Course Applications</Typography>
+                      <Typography variant="subtitle1" color={COLORS.text.primary}>Course Applications</Typography>
                     </StepLabel>
                     <StepContent>
-                      <Typography>{applications.length} applications submitted</Typography>
+                      <Typography color={COLORS.text.primary}>{applications.length} applications submitted</Typography>
                       {applications.some(app => app.status === 'admitted') && (
-                        <Chip label="Admitted!" color="success" size="small" sx={{ mt: 1 }} />
+                        <Chip label="Admitted" color="success" size="small" sx={{ mt: 1 }} />
                       )}
                     </StepContent>
                   </Step>
                   <Step active={jobApplications.length > 0}>
                     <StepLabel>
-                      <Typography variant="subtitle1">Job Applications</Typography>
+                      <Typography variant="subtitle1" color={COLORS.text.primary}>Job Applications</Typography>
                     </StepLabel>
                     <StepContent>
-                      <Typography>{jobApplications.length} applications submitted</Typography>
-                      <Typography variant="body2" color="text.secondary">
+                      <Typography color={COLORS.text.primary}>{jobApplications.length} applications submitted</Typography>
+                      <Typography variant="body2" color={COLORS.text.secondary}>
                         Average match score: {Math.round(dashboardStats.avgMatchScore)}%
                       </Typography>
                     </StepContent>
@@ -1520,10 +2064,8 @@ const StudentDashboard = () => {
               </Card>
 
               {/* Recent Activity */}
-              <Card sx={{ p: 3 }}>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <History /> Recent Activity
-                </Typography>
+              <Card sx={{ p: 3, backgroundColor: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+                <Typography variant="h6" gutterBottom sx={{ color: COLORS.primary, fontWeight: 'bold' }}>Recent Activity</Typography>
                 <List>
                   {[...applications, ...jobApplications]
                     .sort((a, b) => {
@@ -1535,16 +2077,29 @@ const StudentDashboard = () => {
                     .map((item, index) => (
                       <ListItem key={index} divider={index < 4}>
                         <ListItemIcon>
-                          {item.jobId ? <Work color="primary" /> : <School color="secondary" />}
+                          <Box sx={{ 
+                            width: 32, 
+                            height: 32, 
+                            bgcolor: item.jobId ? `${COLORS.primary}20` : `${COLORS.secondary}20`, 
+                            borderRadius: '50%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: item.jobId ? COLORS.primary : COLORS.secondary,
+                            fontWeight: 'bold',
+                            fontSize: '0.8rem'
+                          }}>
+                            {item.jobId ? 'J' : 'C'}
+                          </Box>
                         </ListItemIcon>
                         <ListItemText
-                          primary={item.jobTitle || item.courseName}
+                          primary={<Typography color={COLORS.text.primary}>{item.jobTitle || item.courseName}</Typography>}
                           secondary={
                             <Box>
-                              <Typography variant="body2">
+                              <Typography variant="body2" color={COLORS.text.primary}>
                                 {item.companyName || item.instituteName}
                               </Typography>
-                              <Typography variant="caption" color="text.secondary">
+                              <Typography variant="caption" color={COLORS.text.secondary}>
                                 Applied {formatDate(item.appliedAt)}
                               </Typography>
                               {item.matchScore && (
@@ -1566,7 +2121,7 @@ const StudentDashboard = () => {
                   {applications.length === 0 && jobApplications.length === 0 && (
                     <ListItem>
                       <ListItemText
-                        primary="No recent activity"
+                        primary={<Typography color={COLORS.text.primary}>No recent activity</Typography>}
                         secondary="Start by applying to courses or jobs!"
                       />
                     </ListItem>
@@ -1578,14 +2133,8 @@ const StudentDashboard = () => {
             {/* Quick Actions & Recommendations */}
             <Grid item xs={12} md={4}>
               {/* Quick Actions */}
-              <Card sx={{ p: 3, mb: 3 }}>
-                <Typography
-                  variant="h6"
-                  gutterBottom
-                  sx={{ display: "flex", alignItems: "center", gap: 1 }}
-                >
-                  <Rocket /> Quick Actions
-                </Typography>
+              <Card sx={{ p: 3, mb: 3, backgroundColor: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+                <Typography variant="h6" gutterBottom sx={{ color: COLORS.primary, fontWeight: 'bold' }}>Quick Actions</Typography>
 
                 <Grid container spacing={2}>
                   <Grid item xs={6}>
@@ -1598,9 +2147,15 @@ const StudentDashboard = () => {
                         flexDirection: "column",
                         justifyContent: "center",
                         alignItems: "center",
+                        borderColor: COLORS.primary,
+                        color: COLORS.primary,
+                        '&:hover': {
+                          borderColor: COLORS.secondary,
+                          backgroundColor: `${COLORS.primary}08`,
+                        }
                       }}
                     >
-                      <School sx={{ mb: 1 }} />
+                      <Box sx={{ fontSize: '1rem', mb: 1, fontWeight: 'bold' }}>C</Box>
                       Apply to Courses
                     </Button>
                   </Grid>
@@ -1615,9 +2170,15 @@ const StudentDashboard = () => {
                         flexDirection: "column",
                         justifyContent: "center",
                         alignItems: "center",
+                        borderColor: COLORS.primary,
+                        color: COLORS.primary,
+                        '&:hover': {
+                          borderColor: COLORS.secondary,
+                          backgroundColor: `${COLORS.primary}08`,
+                        }
                       }}
                     >
-                      <Work sx={{ mb: 1 }} />
+                      <Box sx={{ fontSize: '1rem', mb: 1, fontWeight: 'bold' }}>J</Box>
                       Find Jobs
                     </Button>
                   </Grid>
@@ -1632,9 +2193,15 @@ const StudentDashboard = () => {
                         flexDirection: "column",
                         justifyContent: "center",
                         alignItems: "center",
+                        borderColor: COLORS.primary,
+                        color: COLORS.primary,
+                        '&:hover': {
+                          borderColor: COLORS.secondary,
+                          backgroundColor: `${COLORS.primary}08`,
+                        }
                       }}
                     >
-                      <Upload sx={{ mb: 1 }} />
+                      <Box sx={{ fontSize: '1rem', mb: 1, fontWeight: 'bold' }}>D</Box>
                       Upload Docs
                     </Button>
                   </Grid>
@@ -1649,9 +2216,15 @@ const StudentDashboard = () => {
                         flexDirection: "column",
                         justifyContent: "center",
                         alignItems: "center",
+                        borderColor: COLORS.primary,
+                        color: COLORS.primary,
+                        '&:hover': {
+                          borderColor: COLORS.secondary,
+                          backgroundColor: `${COLORS.primary}08`,
+                        }
                       }}
                     >
-                      <Person sx={{ mb: 1 }} />
+                      <Box sx={{ fontSize: '1rem', mb: 1, fontWeight: 'bold' }}>P</Box>
                       Update Profile
                     </Button>
                   </Grid>
@@ -1659,49 +2232,46 @@ const StudentDashboard = () => {
               </Card>
 
               {/* Recommended Jobs */}
-              <Card sx={{ p: 3, mb: 3 }}>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <AutoAwesome /> Recommended Jobs
-                </Typography>
+              <Card sx={{ p: 3, mb: 3, backgroundColor: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+                <Typography variant="h6" gutterBottom sx={{ color: COLORS.primary, fontWeight: 'bold' }}>Recommended Jobs</Typography>
                 {getFilteredJobs()
                   .filter(job => calculateJobMatch(job) >= 75)
                   .slice(0, 3)
                   .map(job => (
-                    <Card key={job.id} variant="outlined" sx={{ p: 2, mb: 2, cursor: 'pointer' }}
+                    <Card key={job.id} variant="outlined" sx={{ p: 2, mb: 2, cursor: 'pointer', borderColor: COLORS.border, backgroundColor: COLORS.background }}
                       onClick={() => {
                         setSelectedJob(job);
                         setApplyJobDialogOpen(true);
                       }}
                     >
-                      <Typography fontWeight="bold" gutterBottom>{job.title}</Typography>
-                      <Typography variant="body2" color="text.secondary" gutterBottom>
+                      <Typography fontWeight="bold" gutterBottom color={COLORS.text.primary}>{job.title}</Typography>
+                      <Typography variant="body2" color={COLORS.text.secondary} gutterBottom>
                         {job.companyName}
                       </Typography>
                       {renderMatchStars(calculateJobMatch(job))}
                       <Button 
                         size="small" 
-                        startIcon={<BookmarkBorder />}
                         onClick={(e) => {
                           e.stopPropagation();
                           toggleBookmark(job);
                         }}
-                        sx={{ mt: 1 }}
+                        sx={{ mt: 1, color: COLORS.primary }}
                       >
-                        Save
+                        {bookmarkedJobs.includes(job.id) ? 'Saved' : 'Save'}
                       </Button>
                     </Card>
                   ))}
                 {getFilteredJobs().filter(job => calculateJobMatch(job) >= 75).length === 0 && (
-                  <Typography color="text.secondary" textAlign="center" py={2}>
+                  <Typography color={COLORS.text.secondary} textAlign="center" py={2}>
                     {jobs.length === 0 ? 'No jobs available yet' : 'Complete your profile for better recommendations'}
                   </Typography>
                 )}
               </Card>
 
               {/* Profile Completion */}
-              <Card sx={{ p: 3, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
+              <Card sx={{ p: 3, background: `linear-gradient(135deg, ${COLORS.primary} 0%, ${COLORS.secondary} 100%)`, color: 'white' }}>
                 <Typography variant="h6" gutterBottom>
-                  🎯 Profile Strength
+                  Profile Strength
                 </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
                   <CircularProgress 
@@ -1712,7 +2282,7 @@ const StudentDashboard = () => {
                   />
                   <Box>
                     <Typography variant="h4">{Math.round(dashboardStats.profileCompletion)}%</Typography>
-                    <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                    <Typography variant="body2">
                       Complete
                     </Typography>
                   </Box>
@@ -1736,7 +2306,7 @@ const StudentDashboard = () => {
         {/* Courses Tab */}
         <TabPanel value={tabValue} index={1}>
           <Box sx={{ mb: 3 }}>
-            <Typography variant="h5" gutterBottom>Course Applications</Typography>
+            <Typography variant="h5" gutterBottom sx={{ color: COLORS.primary, fontWeight: 'bold' }}>Course Applications</Typography>
             <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
               <Chip
                 label={`All Courses (${courses.length})`}
@@ -1768,8 +2338,8 @@ const StudentDashboard = () => {
           <Grid container spacing={3}>
             {/* Course Application Form */}
             <Grid item xs={12} md={4}>
-              <Card sx={{ p: 3, position: 'sticky', top: 100 }}>
-                <Typography variant="h6" gutterBottom>Apply for New Course</Typography>
+              <Card sx={{ p: 3, position: 'sticky', top: 100, backgroundColor: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+                <Typography variant="h6" gutterBottom sx={{ color: COLORS.primary }}>Apply for New Course</Typography>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <Select
                     value={selectedInst}
@@ -1812,8 +2382,8 @@ const StudentDashboard = () => {
                     variant="contained"
                     onClick={applyCourse}
                     disabled={!selectedCourse || !selectedInst}
-                    startIcon={<Send />}
                     size="large"
+                    sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.secondary } }}
                   >
                     Apply for Course
                   </Button>
@@ -1826,20 +2396,33 @@ const StudentDashboard = () => {
 
                 {/* Application Status */}
                 <Box sx={{ mt: 3 }}>
-                  <Typography variant="h6" gutterBottom>Your Applications ({applications.length})</Typography>
+                  <Typography variant="h6" gutterBottom sx={{ color: COLORS.primary }}>Your Applications ({applications.length})</Typography>
                   {applications.length > 0 ? (
                     <List dense>
                       {applications.map((application) => (
                         <ListItem key={application.id} divider>
                           <ListItemIcon>
-                            <School color={getStatusColor(application.status)} />
+                            <Box sx={{ 
+                              width: 24, 
+                              height: 24, 
+                              bgcolor: `${getStatusColor(application.status) === 'success' ? COLORS.status.success : getStatusColor(application.status) === 'warning' ? COLORS.status.warning : COLORS.status.error}20`, 
+                              borderRadius: '50%',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: getStatusColor(application.status) === 'success' ? COLORS.status.success : getStatusColor(application.status) === 'warning' ? COLORS.status.warning : COLORS.status.error,
+                              fontSize: '0.7rem',
+                              fontWeight: 'bold'
+                            }}>
+                              C
+                            </Box>
                           </ListItemIcon>
                           <ListItemText
-                            primary={application.courseName || 'Unknown Course'}
+                            primary={<Typography color={COLORS.text.primary}>{application.courseName || 'Unknown Course'}</Typography>}
                             secondary={
                               <Box>
-                                <Typography variant="body2">{application.instituteName || 'Unknown Institution'}</Typography>
-                                <Typography variant="caption" display="block" color="text.secondary">
+                                <Typography variant="body2" color={COLORS.text.primary}>{application.instituteName || 'Unknown Institution'}</Typography>
+                                <Typography variant="caption" display="block" color={COLORS.text.secondary}>
                                   Applied: {formatDate(application.appliedAt)}
                                 </Typography>
                                 <Box sx={{ mt: 0.5 }}>
@@ -1865,11 +2448,11 @@ const StudentDashboard = () => {
                     </List>
                   ) : (
                     <Box sx={{ textAlign: 'center', py: 2 }}>
-                      <School sx={{ fontSize: 48, color: 'text.secondary', mb: 1 }} />
-                      <Typography color="text.secondary">
+                      <Box sx={{ fontSize: '2rem', color: COLORS.text.disabled, mb: 1, fontWeight: 'bold' }}>C</Box>
+                      <Typography color={COLORS.text.secondary}>
                         No applications yet
                       </Typography>
-                      <Typography variant="body2" color="text.secondary">
+                      <Typography variant="body2" color={COLORS.text.secondary}>
                         Apply to courses using the form above
                       </Typography>
                     </Box>
@@ -1880,17 +2463,17 @@ const StudentDashboard = () => {
 
             {/* Available Courses */}
             <Grid item xs={12} md={8}>
-              <Typography variant="h6" gutterBottom>
+              <Typography variant="h6" gutterBottom sx={{ color: COLORS.primary }}>
                 Available Courses ({getFilteredCourses().length})
               </Typography>
               
               {getFilteredCourses().length === 0 ? (
-                <Card sx={{ p: 4, textAlign: 'center' }}>
-                  <School sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
-                  <Typography variant="h6" color="text.secondary" gutterBottom>
+                <Card sx={{ p: 4, textAlign: 'center', backgroundColor: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+                  <Box sx={{ fontSize: '3rem', color: COLORS.text.disabled, mb: 2, fontWeight: 'bold' }}>C</Box>
+                  <Typography variant="h6" color={COLORS.text.secondary} gutterBottom>
                     No courses found
                   </Typography>
-                  <Typography variant="body2" color="text.secondary">
+                  <Typography variant="body2" color={COLORS.text.secondary}>
                     {courseFilter === 'applied' 
                       ? "You haven't applied to any courses yet."
                       : courseFilter === 'qualified'
@@ -1915,13 +2498,14 @@ const StudentDashboard = () => {
                         <Card variant="outlined" sx={{ 
                           p: 2, 
                           transition: 'all 0.2s', 
+                          backgroundColor: COLORS.surface,
                           '&:hover': { boxShadow: 2 },
-                          borderColor: !isQualified ? 'error.light' : 'default'
+                          borderColor: !isQualified ? COLORS.status.error : COLORS.border
                         }}>
                           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                             <Box sx={{ flex: 1 }}>
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                                <Typography fontWeight="bold" gutterBottom variant="h6">
+                                <Typography fontWeight="bold" gutterBottom variant="h6" color={COLORS.text.primary}>
                                   {course.name}
                                 </Typography>
                                 {!isQualified && (
@@ -1933,17 +2517,17 @@ const StudentDashboard = () => {
                                   />
                                 )}
                               </Box>
-                              <Typography variant="body2" color="text.secondary" gutterBottom>
+                              <Typography variant="body2" color={COLORS.text.secondary} gutterBottom>
                                 {institution?.name} • {faculty?.name}
                               </Typography>
-                              <Typography variant="body2" sx={{ mb: 2 }} color="text.primary">
+                              <Typography variant="body2" sx={{ mb: 2 }} color={COLORS.text.primary}>
                                 {course.description || 'No description available.'}
                               </Typography>
                               
                               {/* Course Requirements */}
                               {course.requirements && (
                                 <Box sx={{ mb: 2 }}>
-                                  <Typography variant="body2" fontWeight="bold" gutterBottom>
+                                  <Typography variant="body2" fontWeight="bold" gutterBottom color={COLORS.text.primary}>
                                     Requirements:
                                   </Typography>
                                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
@@ -1997,7 +2581,7 @@ const StudentDashboard = () => {
                                     setSelectedCourse(course.id);
                                   }}
                                   disabled={institutionApplications.length >= 2 || !isQualified}
-                                  startIcon={<Send />}
+                                  sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.secondary } }}
                                 >
                                   Apply
                                 </Button>
@@ -2027,10 +2611,10 @@ const StudentDashboard = () => {
         {/* Jobs Tab */}
         <TabPanel value={tabValue} index={2}>
           <Box sx={{ mb: 3 }}>
-            <Typography variant="h5" gutterBottom>Job Opportunities</Typography>
+            <Typography variant="h5" gutterBottom sx={{ color: COLORS.primary, fontWeight: 'bold' }}>Job Opportunities</Typography>
             <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
               <Chip
-                label={`All Jobs (${jobs.length})`}
+                label={`All Jobs (${getFilteredJobs().length})`}
                 clickable
                 color={jobFilter === 'all' ? 'primary' : 'default'}
                 onClick={() => setJobFilter('all')}
@@ -2042,7 +2626,7 @@ const StudentDashboard = () => {
                 onClick={() => setJobFilter('high_match')}
               />
               <Chip
-                label={`Qualified (${jobs.filter(job => calculateJobMatch(job) >= 50).length})`}
+                label={`Qualified (${getFilteredJobs().filter(job => calculateJobMatch(job) >= 50).length})`}
                 clickable
                 color={jobFilter === 'qualified' ? 'primary' : 'default'}
                 onClick={() => setJobFilter('qualified')}
@@ -2065,21 +2649,21 @@ const StudentDashboard = () => {
           <Grid container spacing={3}>
             {getFilteredJobs().length === 0 ? (
               <Grid item xs={12}>
-                <Card sx={{ p: 4, textAlign: 'center' }}>
-                  <Work sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
-                  <Typography variant="h6" color="text.secondary" gutterBottom>
-                    {jobs.length === 0 ? 'No jobs available yet' : 'No jobs match your current filters'}
+                <Card sx={{ p: 4, textAlign: 'center', backgroundColor: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+                  <Box sx={{ fontSize: '3rem', color: COLORS.text.disabled, mb: 2, fontWeight: 'bold' }}>J</Box>
+                  <Typography variant="h6" color={COLORS.text.secondary} gutterBottom>
+                    {jobs.length === 0 ? 'No jobs available yet' : 'No jobs match your field and qualifications'}
                   </Typography>
-                  <Typography variant="body2" color="text.secondary">
+                  <Typography variant="body2" color={COLORS.text.secondary}>
                     {jobs.length === 0 
                       ? "Check back later for new job opportunities!"
-                      : "Try changing your filters to see more jobs."
+                      : "Jobs are filtered to match your field of study. Update your profile if needed."
                     }
                   </Typography>
                   {jobs.length === 0 && (
                     <Button 
                       variant="contained" 
-                      sx={{ mt: 2 }}
+                      sx={{ mt: 2, backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.secondary } }}
                       onClick={() => fetchJobs()}
                     >
                       Refresh Jobs
@@ -2101,7 +2685,8 @@ const StudentDashboard = () => {
                       height: '100%',
                       position: 'relative',
                       transition: 'all 0.2s',
-                      borderColor: !isQualified ? 'warning.light' : 'default',
+                      backgroundColor: COLORS.surface,
+                      borderColor: !isQualified ? COLORS.status.warning : COLORS.border,
                       '&:hover': { 
                         boxShadow: 3,
                         transform: 'translateY(-2px)'
@@ -2129,10 +2714,10 @@ const StudentDashboard = () => {
 
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
                         <Box sx={{ flex: 1 }}>
-                          <Typography fontWeight="bold" gutterBottom variant="h6">
+                          <Typography fontWeight="bold" gutterBottom variant="h6" color={COLORS.text.primary}>
                             {job.title}
                           </Typography>
-                          <Typography variant="body2" color="text.secondary" gutterBottom>
+                          <Typography variant="body2" color={COLORS.text.secondary} gutterBottom>
                             {job.companyName} • {job.location}
                           </Typography>
                         </Box>
@@ -2141,17 +2726,17 @@ const StudentDashboard = () => {
                           onClick={() => toggleBookmark(job)}
                           color={isBookmarked ? 'primary' : 'default'}
                         >
-                          {isBookmarked ? <Bookmark /> : <BookmarkBorder />}
+                          {isBookmarked ? '★' : '☆'}
                         </IconButton>
                       </Box>
 
-                      <Typography variant="body2" sx={{ mb: 2, color: 'text.primary' }}>
+                      <Typography variant="body2" sx={{ mb: 2, color: COLORS.text.primary }}>
                         {job.description || 'No description available.'}
                       </Typography>
 
                       {/* Match Score */}
                       <Box sx={{ mb: 2 }}>
-                        <Typography variant="body2" gutterBottom>
+                        <Typography variant="body2" gutterBottom color={COLORS.text.primary}>
                           Your Match:
                         </Typography>
                         {renderMatchStars(matchScore)}
@@ -2202,9 +2787,9 @@ const StudentDashboard = () => {
                           setApplyJobDialogOpen(true);
                         }}
                         disabled={hasApplied || !isQualified}
-                        startIcon={hasApplied ? <CheckCircle /> : <Send />}
                         fullWidth
                         size="large"
+                        sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.secondary } }}
                       >
                         {hasApplied ? 'Applied' : !isQualified ? 'Not Qualified' : 'Apply Now'}
                       </Button>
@@ -2220,16 +2805,13 @@ const StudentDashboard = () => {
         <TabPanel value={tabValue} index={3}>
           <Grid container spacing={3}>
             <Grid item xs={12} md={8}>
-              <Card sx={{ p: 3 }}>
-                <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Person /> Profile Management
-                </Typography>
+              <Card sx={{ p: 3, backgroundColor: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+                <Typography variant="h5" gutterBottom sx={{ color: COLORS.primary, fontWeight: 'bold' }}>Profile Management</Typography>
                 
                 {profileUpdateStatus && (
                   <Alert
                     severity={profileUpdateStatus === 'success' ? 'success' : profileUpdateStatus === 'error' ? 'error' : 'info'}
                     sx={{ mb: 3 }}
-                    icon={profileUpdateStatus === 'success' ? <CheckCircle /> : profileUpdateStatus === 'error' ? <Error /> : <CircularProgress size={20} />}
                   >
                     {profileUpdateMessage}
                   </Alert>
@@ -2274,6 +2856,28 @@ const StudentDashboard = () => {
                       fullWidth
                     />
                   </Grid>
+                  
+                  {/* Education Level */}
+                  <Grid item xs={12}>
+                    <Typography variant="h6" gutterBottom color={COLORS.text.primary}>Education Status</Typography>
+                    <Select
+                      value={educationLevel}
+                      onChange={e => setEducationLevel(e.target.value)}
+                      fullWidth
+                    >
+                      <MenuItem value="high_school">High School Student</MenuItem>
+                      <MenuItem value="undergraduate">Undergraduate Student</MenuItem>
+                      <MenuItem value="graduate">Graduate Student</MenuItem>
+                      <MenuItem value="completed">Completed Education</MenuItem>
+                    </Select>
+                    <Typography variant="caption" color={COLORS.text.secondary} sx={{ mt: 1 }}>
+                      {educationLevel === 'completed' 
+                        ? 'System will auto-apply to relevant jobs' 
+                        : 'Update when you complete your education to enable auto-job applications'
+                      }
+                    </Typography>
+                  </Grid>
+                  
                   <Grid item xs={12}>
                     <TextField
                       label="LinkedIn Profile"
@@ -2295,9 +2899,9 @@ const StudentDashboard = () => {
                     />
                   </Grid>
                   
-                  {/* High School Grades */}
+                  {/* High School Grades with Subject Selection and Letter Grades including A* */}
                   <Grid item xs={12}>
-                    <Typography variant="h6" gutterBottom>High School Grades</Typography>
+                    <Typography variant="h6" gutterBottom color={COLORS.text.primary}>High School Grades</Typography>
                     <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
                       {Object.entries(highSchoolGrades).map(([subject, grade]) => (
                         <Chip
@@ -2309,40 +2913,57 @@ const StudentDashboard = () => {
                         />
                       ))}
                       {Object.keys(highSchoolGrades).length === 0 && (
-                        <Typography variant="body2" color="text.secondary">
+                        <Typography variant="body2" color={COLORS.text.secondary}>
                           No grades added yet
                         </Typography>
                       )}
                     </Box>
                     <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-                      <TextField
-                        label="Subject"
+                      <Select
+                        value={selectedSubject}
+                        onChange={e => setSelectedSubject(e.target.value)}
+                        displayEmpty
                         size="small"
-                        placeholder="e.g., Mathematics"
-                        id="subject-input"
-                        sx={{ minWidth: 120 }}
-                      />
-                      <TextField
-                        label="Grade"
-                        type="number"
+                        sx={{ minWidth: 150 }}
+                      >
+                        <MenuItem value="">Select Subject</MenuItem>
+                        {HIGH_SCHOOL_SUBJECTS.map(subject => (
+                          <MenuItem key={subject} value={subject}>
+                            {subject}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                      <Select
+                        value={grade}
+                        onChange={e => setGrade(e.target.value)}
+                        displayEmpty
                         size="small"
-                        placeholder="Grade"
-                        inputProps={{ min: 0, max: 100 }}
-                        id="grade-input"
                         sx={{ minWidth: 100 }}
-                      />
+                      >
+                        <MenuItem value="">Select Grade</MenuItem>
+                        {GRADE_OPTIONS.map(gradeOption => (
+                          <MenuItem key={gradeOption} value={gradeOption}>
+                            {gradeOption}
+                          </MenuItem>
+                        ))}
+                      </Select>
                       <Button 
                         variant="outlined" 
                         onClick={addHighSchoolGrade}
+                        disabled={!selectedSubject || !grade}
+                        sx={{ borderColor: COLORS.primary, color: COLORS.primary }}
                       >
                         Add Grade
                       </Button>
                     </Box>
+                    <Typography variant="caption" color={COLORS.text.secondary} sx={{ mt: 1 }}>
+                      Grades are stored as letters (A*, A, B, C, D, E, F)
+                    </Typography>
                   </Grid>
                   
                   {/* Qualifications */}
                   <Grid item xs={12}>
-                    <Typography variant="h6" gutterBottom>Additional Qualifications</Typography>
+                    <Typography variant="h6" gutterBottom color={COLORS.text.primary}>Additional Qualifications</Typography>
                     <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
                       {qualifications.map((qualification, index) => (
                         <Chip
@@ -2354,7 +2975,7 @@ const StudentDashboard = () => {
                         />
                       ))}
                       {qualifications.length === 0 && (
-                        <Typography variant="body2" color="text.secondary">
+                        <Typography variant="body2" color={COLORS.text.secondary}>
                           No qualifications added yet
                         </Typography>
                       )}
@@ -2375,6 +2996,7 @@ const StudentDashboard = () => {
                         variant="outlined" 
                         onClick={addQualification}
                         disabled={!newQualification.trim()}
+                        sx={{ borderColor: COLORS.primary, color: COLORS.primary }}
                       >
                         Add
                       </Button>
@@ -2383,7 +3005,7 @@ const StudentDashboard = () => {
 
                   {/* Skills Section */}
                   <Grid item xs={12}>
-                    <Typography variant="h6" gutterBottom>Skills</Typography>
+                    <Typography variant="h6" gutterBottom color={COLORS.text.primary}>Skills</Typography>
                     <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
                       {skills.map((skill, index) => (
                         <Chip
@@ -2395,7 +3017,7 @@ const StudentDashboard = () => {
                         />
                       ))}
                       {skills.length === 0 && (
-                        <Typography variant="body2" color="text.secondary">
+                        <Typography variant="body2" color={COLORS.text.secondary}>
                           No skills added yet
                         </Typography>
                       )}
@@ -2416,11 +3038,12 @@ const StudentDashboard = () => {
                         variant="outlined" 
                         onClick={addSkill}
                         disabled={!newSkill.trim() || skills.length >= 10}
+                        sx={{ borderColor: COLORS.primary, color: COLORS.primary }}
                       >
                         Add
                       </Button>
                     </Box>
-                    <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                    <Typography variant="caption" color={COLORS.text.secondary} sx={{ mt: 1 }}>
                       {10 - skills.length} skills remaining
                     </Typography>
                   </Grid>
@@ -2433,6 +3056,7 @@ const StudentDashboard = () => {
                     disabled={updatingProfile || (gpa && (gpa < 0 || gpa > 4))}
                     startIcon={updatingProfile ? <CircularProgress size={20} /> : null}
                     size="large"
+                    sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.secondary } }}
                   >
                     {updatingProfile ? 'Updating...' : 'Update Profile'}
                   </Button>
@@ -2448,7 +3072,9 @@ const StudentDashboard = () => {
                       setLinkedin(profile?.linkedin || '');
                       setHighSchoolGrades(profile?.highSchoolGrades || {});
                       setQualifications(profile?.qualifications || []);
+                      setEducationLevel(profile?.educationLevel || 'high_school');
                     }}
+                    sx={{ borderColor: COLORS.text.secondary, color: COLORS.text.secondary }}
                   >
                     Reset
                   </Button>
@@ -2458,49 +3084,53 @@ const StudentDashboard = () => {
 
             {/* Profile Summary */}
             <Grid item xs={12} md={4}>
-              <Card sx={{ p: 3, textAlign: 'center' }}>
+              <Card sx={{ p: 3, textAlign: 'center', backgroundColor: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
                 <Avatar sx={{ 
                   width: 100, 
                   height: 100, 
                   mx: 'auto', 
                   mb: 2,
-                  bgcolor: 'primary.main',
-                  fontSize: '2rem'
+                  bgcolor: COLORS.primary,
+                  fontSize: '2rem',
+                  fontWeight: 'bold'
                 }}>
                   {profile?.name?.charAt(0) || 'S'}
                 </Avatar>
-                <Typography variant="h6" gutterBottom>
+                <Typography variant="h6" gutterBottom color={COLORS.text.primary}>
                   {profile?.name || 'Student'}
                 </Typography>
-                <Typography variant="body2" color="text.secondary" gutterBottom>
+                <Typography variant="body2" color={COLORS.text.secondary} gutterBottom>
                   {profile?.email}
                 </Typography>
                 
                 <Divider sx={{ my: 2 }} />
                 
                 <Box sx={{ textAlign: 'left' }}>
-                  <Typography variant="body2" gutterBottom>
+                  <Typography variant="body2" gutterBottom color={COLORS.text.primary}>
                     <strong>Field:</strong> {profile?.field || 'Not specified'}
                   </Typography>
-                  <Typography variant="body2" gutterBottom>
+                  <Typography variant="body2" gutterBottom color={COLORS.text.primary}>
                     <strong>GPA:</strong> {profile?.gpa || 'Not specified'}
                   </Typography>
-                  <Typography variant="body2" gutterBottom>
+                  <Typography variant="body2" gutterBottom color={COLORS.text.primary}>
                     <strong>Experience:</strong> {profile?.experience || 0} years
                   </Typography>
-                  <Typography variant="body2" gutterBottom>
+                  <Typography variant="body2" gutterBottom color={COLORS.text.primary}>
+                    <strong>Education:</strong> {educationLevel?.replace('_', ' ') || 'Not specified'}
+                  </Typography>
+                  <Typography variant="body2" gutterBottom color={COLORS.text.primary}>
                     <strong>Skills:</strong> {skills.length} added
                   </Typography>
-                  <Typography variant="body2" gutterBottom>
+                  <Typography variant="body2" gutterBottom color={COLORS.text.primary}>
                     <strong>Qualifications:</strong> {qualifications.length} added
                   </Typography>
-                  <Typography variant="body2">
+                  <Typography variant="body2" color={COLORS.text.primary}>
                     <strong>High School Grades:</strong> {Object.keys(highSchoolGrades).length} subjects
                   </Typography>
                 </Box>
 
-                <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                  <Typography variant="body2" gutterBottom>
+                <Box sx={{ mt: 3, p: 2, bgcolor: `${COLORS.primary}08`, borderRadius: 1 }}>
+                  <Typography variant="body2" gutterBottom color={COLORS.text.primary}>
                     Profile Strength
                   </Typography>
                   <LinearProgress 
@@ -2508,17 +3138,15 @@ const StudentDashboard = () => {
                     value={dashboardStats.profileCompletion} 
                     sx={{ height: 8, borderRadius: 4, mb: 1 }}
                   />
-                  <Typography variant="body2" color="text.secondary">
+                  <Typography variant="body2" color={COLORS.text.secondary}>
                     {Math.round(dashboardStats.profileCompletion)}% Complete
                   </Typography>
                 </Box>
               </Card>
 
               {/* Quick Tips */}
-              <Card sx={{ p: 3, mt: 3, bgcolor: 'info.50' }}>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Lightbulb /> Profile Tips
-                </Typography>
+              <Card sx={{ p: 3, mt: 3, backgroundColor: `${COLORS.primary}08`, border: `1px solid ${COLORS.border}` }}>
+                <Typography variant="h6" gutterBottom sx={{ color: COLORS.primary }}>Profile Tips</Typography>
                 <List dense>
                   <ListItem>
                     <ListItemText primary="Complete all fields for better job matches" />
@@ -2533,7 +3161,7 @@ const StudentDashboard = () => {
                     <ListItemText primary="Include high school grades for course eligibility" />
                   </ListItem>
                   <ListItem>
-                    <ListItemText primary="Add additional qualifications and certificates" />
+                    <ListItemText primary="Set education to 'Completed' to auto-apply for jobs" />
                   </ListItem>
                 </List>
               </Card>
@@ -2545,21 +3173,14 @@ const StudentDashboard = () => {
         <TabPanel value={tabValue} index={4}>
           <Grid container spacing={3}>
             <Grid item xs={12} md={6}>
-              <Card sx={{ p: 3 }}>
-                <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Description /> Upload Documents
-                </Typography>
+              <Card sx={{ p: 3, backgroundColor: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+                <Typography variant="h5" gutterBottom sx={{ color: COLORS.primary, fontWeight: 'bold' }}>Upload Documents</Typography>
                 
                 {/* Upload Status */}
                 {uploadStatus && (
                   <Alert
                     severity={uploadStatus === 'success' ? 'success' : uploadStatus === 'error' ? 'error' : 'info'}
                     sx={{ mb: 3 }}
-                    icon={
-                      uploadStatus === 'success' ? <CheckCircle /> : 
-                      uploadStatus === 'error' ? <Error /> : 
-                      <CircularProgress size={20} />
-                    }
                   >
                     <Box>
                       <Typography variant="body1" fontWeight="bold">
@@ -2610,31 +3231,34 @@ const StudentDashboard = () => {
                   <Box
                     sx={{
                       border: '2px dashed',
-                      borderColor: file ? 'primary.main' : 'grey.300',
+                      borderColor: file ? COLORS.primary : COLORS.border,
                       p: 3,
                       textAlign: 'center',
                       borderRadius: 2,
                       cursor: uploading ? 'default' : 'pointer',
-                      backgroundColor: file ? 'primary.50' : 'grey.50',
+                      backgroundColor: file ? `${COLORS.primary}04` : COLORS.surface,
                       transition: 'all 0.2s',
                       '&:hover': !uploading ? { 
-                        backgroundColor: file ? 'primary.100' : 'grey.100',
-                        borderColor: 'primary.main'
+                        backgroundColor: file ? `${COLORS.primary}08` : `${COLORS.primary}04`,
+                        borderColor: COLORS.primary
                       } : {},
                       opacity: uploading ? 0.7 : 1
                     }}
                     onClick={() => !uploading && document.getElementById('file-upload').click()}
                   >
-                    <Upload sx={{ 
-                      fontSize: 48, 
-                      color: file ? 'primary.main' : 'grey.500', 
+                    <Box sx={{ 
+                      fontSize: '3rem', 
+                      color: file ? COLORS.primary : COLORS.text.disabled, 
                       mb: 2,
-                      opacity: uploading ? 0.5 : 1
-                    }} />
-                    <Typography variant="h6" gutterBottom color={file ? 'primary.main' : 'text.primary'}>
-                      {file ? '✓ File Selected' : 'Click to select a file'}
+                      opacity: uploading ? 0.5 : 1,
+                      fontWeight: 'bold'
+                    }}>
+                      U
+                    </Box>
+                    <Typography variant="h6" gutterBottom color={file ? COLORS.primary : COLORS.text.primary}>
+                      {file ? 'File Selected' : 'Click to select a file'}
                     </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    <Typography variant="body2" color={COLORS.text.secondary} sx={{ mb: 2 }}>
                       {uploading ? 'Processing file...' : 'Supports: PDF, JPG, PNG, DOC, DOCX (Max 5MB)'}
                     </Typography>
                     
@@ -2659,11 +3283,11 @@ const StudentDashboard = () => {
                     />
                     
                     {file && !uploading && (
-                      <Box sx={{ mt: 2, p: 2, backgroundColor: 'white', borderRadius: 1, border: '1px solid', borderColor: 'primary.100' }}>
-                        <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+                      <Box sx={{ mt: 2, p: 2, backgroundColor: COLORS.background, borderRadius: 1, border: '1px solid', borderColor: `${COLORS.primary}30` }}>
+                        <Typography variant="body2" sx={{ fontWeight: 'bold', color: COLORS.primary }}>
                           {getFileIcon(file.type)} {file.name}
                         </Typography>
-                        <Typography variant="body2" color="text.secondary">
+                        <Typography variant="body2" color={COLORS.text.secondary}>
                           Size: {(file.size / 1024 / 1024).toFixed(2)} MB • Type: {file.type || 'Unknown'}
                         </Typography>
                       </Box>
@@ -2674,15 +3298,15 @@ const StudentDashboard = () => {
                     variant="contained"
                     onClick={uploadDocument}
                     disabled={!file || uploading}
-                    startIcon={uploading ? <CircularProgress size={20} /> : <Upload />}
+                    startIcon={uploading ? <CircularProgress size={20} /> : null}
                     size="large"
-                    sx={{ mt: 2 }}
+                    sx={{ mt: 2, backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.secondary } }}
                   >
                     {uploading ? `Processing... (${Math.round(uploadProgress)}%)` : `Upload ${docType.charAt(0).toUpperCase() + docType.slice(1)}`}
                   </Button>
 
                   {uploading && (
-                    <Typography variant="caption" color="text.secondary" textAlign="center">
+                    <Typography variant="caption" color={COLORS.text.secondary} textAlign="center">
                       Converting file to base64 and saving to database...
                     </Typography>
                   )}
@@ -2691,34 +3315,41 @@ const StudentDashboard = () => {
             </Grid>
 
             <Grid item xs={12} md={6}>
-              <Card sx={{ p: 3 }}>
-                <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Description /> Your Documents ({documents.length})
-                </Typography>
+              <Card sx={{ p: 3, backgroundColor: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+                <Typography variant="h5" gutterBottom sx={{ color: COLORS.primary, fontWeight: 'bold' }}>Your Documents ({documents.length})</Typography>
                 {documents.length > 0 ? (
                   <List>
                     {documents.map((doc) => (
                       <ListItem key={doc.id} divider>
                         <ListItemIcon>
-                          <Description color="primary" />
+                          <Box sx={{ 
+                            width: 32, 
+                            height: 32, 
+                            bgcolor: `${COLORS.primary}20`, 
+                            borderRadius: '50%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: COLORS.primary,
+                            fontSize: '1rem',
+                            fontWeight: 'bold'
+                          }}>
+                            {getFileIcon(doc.mimeType)}
+                          </Box>
                         </ListItemIcon>
                         <ListItemText
-                          primary={
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              {getFileIcon(doc.mimeType)} {doc.fileName}
-                            </Box>
-                          }
+                          primary={<Typography color={COLORS.text.primary}>{doc.fileName}</Typography>}
                           secondary={
                             <Box>
-                              <Typography variant="caption" display="block">
+                              <Typography variant="caption" display="block" color={COLORS.text.secondary}>
                                 Type: {doc.fileType} • {(doc.fileSize / 1024 / 1024).toFixed(2)} MB
                               </Typography>
-                              <Typography variant="caption" color="text.secondary">
+                              <Typography variant="caption" color={COLORS.text.secondary}>
                                 Uploaded: {formatDate(doc.uploadedAt)}
                               </Typography>
                               {doc.fileData && (
-                                <Typography variant="caption" display="block" color="success.main">
-                                  ✓ Stored in Firestore
+                                <Typography variant="caption" display="block" color={COLORS.status.success}>
+                                  Stored in Firestore
                                 </Typography>
                               )}
                             </Box>
@@ -2729,27 +3360,27 @@ const StudentDashboard = () => {
                             <IconButton
                               size="small"
                               onClick={() => viewDocument(doc)}
-                              color="primary"
+                              sx={{ color: COLORS.primary }}
                             >
-                              <Visibility />
+                              <Box sx={{ fontSize: '1rem', fontWeight: 'bold' }}>V</Box>
                             </IconButton>
                           </Tooltip>
                           <Tooltip title="Download Document">
                             <IconButton
                               size="small"
                               onClick={() => downloadDocument(doc)}
-                              color="primary"
+                              sx={{ color: COLORS.primary }}
                             >
-                              <Download />
+                              <Box sx={{ fontSize: '1rem', fontWeight: 'bold' }}>D</Box>
                             </IconButton>
                           </Tooltip>
                           <Tooltip title="Delete Document">
                             <IconButton
                               size="small"
                               onClick={() => deleteDocument(doc)}
-                              color="error"
+                              sx={{ color: COLORS.status.error }}
                             >
-                              <Delete />
+                              <Box sx={{ fontSize: '1rem', fontWeight: 'bold' }}>X</Box>
                             </IconButton>
                           </Tooltip>
                         </Box>
@@ -2758,11 +3389,11 @@ const StudentDashboard = () => {
                   </List>
                 ) : (
                   <Box sx={{ textAlign: 'center', py: 4 }}>
-                    <Description sx={{ fontSize: 64, color: 'grey.300', mb: 2 }} />
-                    <Typography variant="h6" color="text.secondary" gutterBottom>
+                    <Box sx={{ fontSize: '3rem', color: COLORS.text.disabled, mb: 2, fontWeight: 'bold' }}>D</Box>
+                    <Typography variant="h6" color={COLORS.text.secondary} gutterBottom>
                       No documents uploaded
                     </Typography>
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body2" color={COLORS.text.secondary}>
                       Upload your transcripts, resume, and other important documents
                     </Typography>
                   </Box>
@@ -2772,92 +3403,214 @@ const StudentDashboard = () => {
           </Grid>
         </TabPanel>
 
-        {/* Notifications Tab */}
-        <TabPanel value={tabValue} index={5}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-            <Typography variant="h5">Notifications</Typography>
-            <Button
-              variant="outlined"
-              onClick={clearAllNotifications}
-              disabled={notifications.length === 0}
-            >
-              Clear All
-            </Button>
-          </Box>
+{/* Enhanced Notifications Tab */}
+<TabPanel value={tabValue} index={5}>
+  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+    <Typography variant="h5" sx={{ color: COLORS.primary, fontWeight: 'bold' }}>
+      Notifications ({notifications.length})
+      {notifications.filter(n => !n.read).length > 0 && (
+        <Typography variant="body2" component="span" sx={{ color: COLORS.status.info, ml: 1 }}>
+          ({notifications.filter(n => !n.read).length} unread)
+        </Typography>
+      )}
+    </Typography>
+    <Box sx={{ display: 'flex', gap: 1 }}>
+      <Button
+        variant="outlined"
+        onClick={markAllNotificationsRead}
+        disabled={notifications.filter(n => !n.read).length === 0}
+        sx={{ borderColor: COLORS.primary, color: COLORS.primary }}
+      >
+        Mark All Read
+      </Button>
+      <Button
+        variant="outlined"
+        onClick={clearAllNotifications}
+        disabled={notifications.length === 0}
+        sx={{ borderColor: COLORS.status.error, color: COLORS.status.error }}
+      >
+        Clear All
+      </Button>
+      <Button
+        variant="contained"
+        onClick={() => createNotification({
+          type: 'test',
+          title: 'Test Notification',
+          message: 'This is a test notification to verify the system is working',
+          priority: 'low'
+        })}
+        sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.secondary } }}
+      >
+        Test Notifications
+      </Button>
+    </Box>
+  </Box>
 
-          {notifications.length > 0 ? (
-            <List>
-              {notifications.map((notification, index) => (
-                <ListItem 
-                  key={notification.id} 
-                  divider={index < notifications.length - 1}
-                  sx={{ 
-                    bgcolor: notification.read ? 'transparent' : 'action.hover',
-                    borderLeft: notification.priority === 'high' ? '4px solid' : 'none',
-                    borderColor: 'error.main'
-                  }}
-                >
-                  <ListItemIcon>
-                    {notification.type === 'job_match' && <Work color="success" />}
-                    {notification.type === 'application' && <Send color="primary" />}
-                    {notification.type === 'document' && <Description color="info" />}
-                    {notification.type === 'achievement' && <EmojiEvents color="warning" />}
-                    {notification.type === 'system' && <Notifications color="action" />}
-                    {notification.type === 'admission' && <School color="success" />}
-                    {notification.type === 'admission_decision' && <HowToReg color="info" />}
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="subtitle1">
-                          {notification.title}
-                        </Typography>
-                        {!notification.read && (
-                          <Chip label="New" color="primary" size="small" />
-                        )}
-                      </Box>
-                    }
-                    secondary={
-                      <Box>
-                        <Typography variant="body2">
-                          {notification.message}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {new Date(notification.timestamp).toLocaleString()}
-                        </Typography>
-                      </Box>
-                    }
-                  />
+  {notifications.length > 0 ? (
+    <>
+      <List>
+        {notifications.map((notification, index) => (
+          <ListItem 
+            key={notification.id} 
+            divider={index < notifications.length - 1}
+            sx={{ 
+              backgroundColor: notification.read ? COLORS.background : `${COLORS.primary}08`,
+              borderLeft: notification.priority === 'high' ? '4px solid' : 'none',
+              borderColor: COLORS.status.error,
+              transition: 'all 0.2s',
+              '&:hover': {
+                backgroundColor: notification.read ? `${COLORS.primary}04` : `${COLORS.primary}12`,
+              }
+            }}
+          >
+            <ListItemIcon>
+              <Box sx={{ 
+                width: 40, 
+                height: 40, 
+                bgcolor: `${COLORS.primary}20`, 
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: COLORS.primary,
+                fontSize: '1.2rem',
+                fontWeight: 'bold'
+              }}>
+                N
+              </Box>
+            </ListItemIcon>
+            <ListItemText
+              primary={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                  <Typography variant="subtitle1" color={COLORS.text.primary}>
+                    {notification.title}
+                  </Typography>
                   {!notification.read && (
-                    <Button
-                      size="small"
-                      onClick={() => markNotificationRead(notification.id)}
-                    >
-                      Mark Read
-                    </Button>
+                    <Chip label="New" color="primary" size="small" />
                   )}
-                </ListItem>
-              ))}
-            </List>
-          ) : (
-            <Card sx={{ p: 4, textAlign: 'center' }}>
-              <Notifications sx={{ fontSize: 64, color: 'grey.300', mb: 2 }} />
-              <Typography variant="h6" color="text.secondary" gutterBottom>
-                No notifications
+                  {notification.priority === 'high' && (
+                    <Chip label="Important" color="error" size="small" variant="outlined" />
+                  )}
+                  {notification.id && notification.id.startsWith('local-') && (
+                    <Chip label="Local" color="warning" size="small" variant="outlined" />
+                  )}
+                </Box>
+              }
+              secondary={
+                <Box>
+                  <Typography variant="body2" color={COLORS.text.primary}>
+                    {notification.message}
+                  </Typography>
+                  <Typography variant="caption" color={COLORS.text.secondary}>
+                    {new Date(notification.timestamp).toLocaleString()}
+                  </Typography>
+                  {notification.type && (
+                    <Chip 
+                      label={notification.type.replace('_', ' ')} 
+                      size="small" 
+                      variant="outlined"
+                      sx={{ mt: 0.5 }}
+                    />
+                  )}
+                </Box>
+              }
+            />
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+              {!notification.read && (
+                <Button
+                  size="small"
+                  onClick={() => markNotificationRead(notification.id)}
+                  sx={{ color: COLORS.primary }}
+                >
+                  Mark Read
+                </Button>
+              )}
+              <Button
+                size="small"
+                onClick={() => {
+                  if (notification.type === 'admission' || notification.type === 'course') {
+                    setTabValue(1); // Courses tab
+                  } else if (notification.type === 'job_match' || notification.type === 'job') {
+                    setTabValue(2); // Jobs tab
+                  } else if (notification.type === 'document') {
+                    setTabValue(4); // Documents tab
+                  } else if (notification.type === 'profile') {
+                    setTabValue(3); // Profile tab
+                  }
+                }}
+                sx={{ color: COLORS.text.secondary }}
+              >
+                View Related
+              </Button>
+            </Box>
+          </ListItem>
+        ))}
+      </List>
+
+      {/* Notification Statistics */}
+      <Card sx={{ p: 3, mt: 3, backgroundColor: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+        <Typography variant="h6" gutterBottom sx={{ color: COLORS.primary }}>Notification Summary</Typography>
+        <Grid container spacing={2}>
+          <Grid item xs={6} sm={3}>
+            <Box sx={{ textAlign: 'center', p: 2 }}>
+              <Typography variant="h4" color={COLORS.primary}>{notifications.length}</Typography>
+              <Typography variant="body2" color={COLORS.text.secondary}>Total</Typography>
+            </Box>
+          </Grid>
+          <Grid item xs={6} sm={3}>
+            <Box sx={{ textAlign: 'center', p: 2 }}>
+              <Typography variant="h4" color={COLORS.status.info}>{notifications.filter(n => !n.read).length}</Typography>
+              <Typography variant="body2" color={COLORS.text.secondary}>Unread</Typography>
+            </Box>
+          </Grid>
+          <Grid item xs={6} sm={3}>
+            <Box sx={{ textAlign: 'center', p: 2 }}>
+              <Typography variant="h4" color={COLORS.status.warning}>{notifications.filter(n => n.priority === 'high').length}</Typography>
+              <Typography variant="body2" color={COLORS.text.secondary}>Important</Typography>
+            </Box>
+          </Grid>
+          <Grid item xs={6} sm={3}>
+            <Box sx={{ textAlign: 'center', p: 2 }}>
+              <Typography variant="h4" color={COLORS.status.success}>
+                {notifications.length > 0 ? Math.round((notifications.filter(n => n.read).length / notifications.length) * 100) : 0}%
               </Typography>
-              <Typography variant="body2" color="text.secondary">
-                You're all caught up! New notifications will appear here.
-              </Typography>
-            </Card>
-          )}
-        </TabPanel>
+              <Typography variant="body2" color={COLORS.text.secondary}>Read</Typography>
+            </Box>
+          </Grid>
+        </Grid>
+      </Card>
+    </>
+  ) : (
+    <Card sx={{ p: 4, textAlign: 'center', backgroundColor: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+      <Box sx={{ fontSize: '3rem', color: COLORS.text.disabled, mb: 2, fontWeight: 'bold' }}>N</Box>
+      <Typography variant="h6" color={COLORS.text.secondary} gutterBottom>
+        No notifications
+      </Typography>
+      <Typography variant="body2" color={COLORS.text.secondary}>
+        You're all caught up! New notifications will appear here automatically.
+      </Typography>
+      <Button 
+        variant="contained" 
+        sx={{ mt: 2, backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.secondary } }}
+        onClick={() => createNotification({
+          type: 'test',
+          title: 'Test Notification',
+          message: 'This is a test notification to verify the system is working',
+          priority: 'low'
+        })}
+      >
+        Create Test Notification
+      </Button>
+    </Card>
+  )}
+</TabPanel>
       </Paper>
 
       {/* Job Application Dialog */}
       <Dialog open={applyJobDialogOpen} onClose={() => setApplyJobDialogOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
-          <Typography variant="h5">Apply for {selectedJob?.title}</Typography>
-          <Typography variant="body1" color="text.secondary">
+          <Typography variant="h5" color={COLORS.text.primary}>Apply for {selectedJob?.title}</Typography>
+          <Typography variant="body1" color={COLORS.text.secondary}>
             {selectedJob?.companyName}
           </Typography>
         </DialogTitle>
@@ -2866,21 +3619,18 @@ const StudentDashboard = () => {
             <Box sx={{ mt: 2 }}>
               <Grid container spacing={3}>
                 <Grid item xs={12} md={6}>
-                  <Typography variant="h6" gutterBottom>Job Details</Typography>
+                  <Typography variant="h6" gutterBottom color={COLORS.text.primary}>Job Details</Typography>
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <LocationOn fontSize="small" color="action" />
-                      <Typography>{selectedJob.location || 'Not specified'}</Typography>
+                      <Typography color={COLORS.text.primary}>{selectedJob.location || 'Not specified'}</Typography>
                     </Box>
                     {selectedJob.salary && (
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <AttachMoney fontSize="small" color="action" />
-                        <Typography>{selectedJob.salary}</Typography>
+                        <Typography color={COLORS.text.primary}>{selectedJob.salary}</Typography>
                       </Box>
                     )}
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Schedule fontSize="small" color="action" />
-                      <Typography>
+                      <Typography color={COLORS.text.primary}>
                         {selectedJob.postedAt 
                           ? `Posted ${new Date(selectedJob.postedAt).toLocaleDateString()}`
                           : 'Posted date not available'
@@ -2889,33 +3639,46 @@ const StudentDashboard = () => {
                     </Box>
                   </Box>
                   
-                  <Typography variant="h6" gutterBottom sx={{ mt: 2 }}>Job Description</Typography>
-                  <Typography variant="body2">
+                  <Typography variant="h6" gutterBottom sx={{ mt: 2 }} color={COLORS.text.primary}>Job Description</Typography>
+                  <Typography variant="body2" color={COLORS.text.primary}>
                     {selectedJob.description || 'No description available.'}
                   </Typography>
                 </Grid>
 
                 <Grid item xs={12} md={6}>
-                  <Typography variant="h6" gutterBottom>Your Match</Typography>
-                  <Box sx={{ textAlign: 'center', p: 3, bgcolor: 'primary.50', borderRadius: 2 }}>
-                    <Typography variant="h2" color="primary">
+                  <Typography variant="h6" gutterBottom color={COLORS.text.primary}>Your Match</Typography>
+                  <Box sx={{ textAlign: 'center', p: 3, bgcolor: `${COLORS.primary}20`, borderRadius: 2 }}>
+                    <Typography variant="h2" color="primary" sx={{ color: COLORS.primary }}>
                       {calculateJobMatch(selectedJob)}%
                     </Typography>
-                    <Typography variant="body1" color="text.secondary">
+                    <Typography variant="body1" color={COLORS.text.secondary}>
                       Profile Match Score
                     </Typography>
                     {renderMatchStars(calculateJobMatch(selectedJob))}
                   </Box>
 
-                  <Typography variant="h6" gutterBottom sx={{ mt: 2 }}>Requirements</Typography>
+                  <Typography variant="h6" gutterBottom sx={{ mt: 2 }} color={COLORS.text.primary}>Requirements</Typography>
                   <List dense>
                     {selectedJob.requirements?.minGPA && (
                       <ListItem>
                         <ListItemIcon>
-                          <School color={profile?.gpa >= selectedJob.requirements.minGPA ? "success" : "error"} />
+                          <Box sx={{ 
+                            width: 24, 
+                            height: 24, 
+                            bgcolor: profile?.gpa >= selectedJob.requirements.minGPA ? `${COLORS.status.success}20` : `${COLORS.status.error}20`, 
+                            borderRadius: '50%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: profile?.gpa >= selectedJob.requirements.minGPA ? COLORS.status.success : COLORS.status.error,
+                            fontSize: '0.8rem',
+                            fontWeight: 'bold'
+                          }}>
+                            G
+                          </Box>
                         </ListItemIcon>
                         <ListItemText
-                          primary={`Minimum GPA: ${selectedJob.requirements.minGPA}`}
+                          primary={<Typography color={COLORS.text.primary}>{`Minimum GPA: ${selectedJob.requirements.minGPA}`}</Typography>}
                           secondary={`Your GPA: ${profile?.gpa || 'Not set'}`}
                         />
                       </ListItem>
@@ -2923,13 +3686,23 @@ const StudentDashboard = () => {
                     {selectedJob.requirements?.field && (
                       <ListItem>
                         <ListItemIcon>
-                          <Psychology color={
-                            profile?.field && profile.field.toLowerCase().includes(selectedJob.requirements.field.toLowerCase()) 
-                              ? "success" : "error"
-                          } />
+                          <Box sx={{ 
+                            width: 24, 
+                            height: 24, 
+                            bgcolor: profile?.field && profile.field.toLowerCase().includes(selectedJob.requirements.field.toLowerCase()) ? `${COLORS.status.success}20` : `${COLORS.status.error}20`, 
+                            borderRadius: '50%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: profile?.field && profile.field.toLowerCase().includes(selectedJob.requirements.field.toLowerCase()) ? COLORS.status.success : COLORS.status.error,
+                            fontSize: '0.8rem',
+                            fontWeight: 'bold'
+                          }}>
+                            F
+                          </Box>
                         </ListItemIcon>
                         <ListItemText
-                          primary={`Field: ${selectedJob.requirements.field}`}
+                          primary={<Typography color={COLORS.text.primary}>{`Field: ${selectedJob.requirements.field}`}</Typography>}
                           secondary={`Your Field: ${profile?.field || 'Not set'}`}
                         />
                       </ListItem>
@@ -2937,10 +3710,23 @@ const StudentDashboard = () => {
                     {selectedJob.requirements?.minExperience > 0 && (
                       <ListItem>
                         <ListItemIcon>
-                          <TrendingUp color={profile?.experience >= selectedJob.requirements.minExperience ? "success" : "error"} />
+                          <Box sx={{ 
+                            width: 24, 
+                            height: 24, 
+                            bgcolor: profile?.experience >= selectedJob.requirements.minExperience ? `${COLORS.status.success}20` : `${COLORS.status.error}20`, 
+                            borderRadius: '50%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: profile?.experience >= selectedJob.requirements.minExperience ? COLORS.status.success : COLORS.status.error,
+                            fontSize: '0.8rem',
+                            fontWeight: 'bold'
+                          }}>
+                            E
+                          </Box>
                         </ListItemIcon>
                         <ListItemText
-                          primary={`Experience: ${selectedJob.requirements.minExperience} years`}
+                          primary={<Typography color={COLORS.text.primary}>{`Experience: ${selectedJob.requirements.minExperience} years`}</Typography>}
                           secondary={`Your Experience: ${profile?.experience || 0} years`}
                         />
                       </ListItem>
@@ -2963,8 +3749,8 @@ const StudentDashboard = () => {
           <Button
             onClick={() => applyForJob(selectedJob)}
             variant="contained"
-            startIcon={<Send />}
             size="large"
+            sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.secondary } }}
           >
             Submit Application
           </Button>
@@ -2983,7 +3769,6 @@ const StudentDashboard = () => {
         {speedDialActions.map((action) => (
           <SpeedDialAction
             key={action.name}
-            icon={action.icon}
             tooltipTitle={action.name}
             onClick={action.action}
           />

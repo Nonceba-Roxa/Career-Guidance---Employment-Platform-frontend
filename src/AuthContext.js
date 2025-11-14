@@ -114,13 +114,7 @@ export const AuthProvider = ({ children }) => {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       console.log('✅ Firebase login successful:', userCredential.user.uid);
 
-      // Check if email is verified
-      if (!userCredential.user.emailVerified) {
-        console.warn('⚠️ Email not verified for user:', userCredential.user.uid);
-        // You can choose to allow login or block it based on your requirements
-        // For now, we'll allow login but track verification status
-      }
-
+      // Load user profile to check role and other data
       await loadUserProfile(userCredential.user.uid);
 
       return userCredential;
@@ -133,7 +127,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Signup function with email verification
+  // Signup function with email verification for non-admin users
   const signup = async (email, password, userData) => {
     try {
       setLoading(true);
@@ -143,9 +137,13 @@ export const AuthProvider = ({ children }) => {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       console.log('✅ Firebase user created:', userCredential.user.uid);
 
-      // Send email verification
-      await sendEmailVerification(userCredential.user);
-      console.log('✅ Verification email sent');
+      // Send email verification for non-admin users only
+      if (userData.role !== 'admin') {
+        await sendEmailVerification(userCredential.user);
+        console.log('✅ Verification email sent for non-admin user');
+      } else {
+        console.log('ℹ️ No verification required for admin user');
+      }
 
       // Create user profile in Firestore
       await setDoc(doc(db, 'users', userCredential.user.uid), {
@@ -159,7 +157,11 @@ export const AuthProvider = ({ children }) => {
 
       console.log('✅ User profile created in Firestore');
 
-      await loadUserProfile(userCredential.user.uid);
+      // For non-admin users, log them out so they must verify email first
+      if (userData.role !== 'admin') {
+        await firebaseSignOut(auth);
+        console.log('✅ User logged out - must verify email before login');
+      }
 
       return userCredential;
     } catch (err) {

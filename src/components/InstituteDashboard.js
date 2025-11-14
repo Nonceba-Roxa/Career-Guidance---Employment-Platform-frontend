@@ -4,8 +4,8 @@ import {
   Container, Typography, Table, TableBody, TableCell, TableHead, 
   TableRow, Paper, Select, MenuItem, TextField, Button, Box, Grid,
   Dialog, DialogTitle, DialogContent, DialogActions, Alert, 
-  LinearProgress, Chip, Card, CardContent, Avatar, IconButton,
-  Tabs, Tab, List, ListItem, ListItemText, ListItemIcon,
+  LinearProgress, Chip, Card, CardContent, Avatar,
+  Tabs, Tab, List, ListItem, ListItemText,
   Divider, Tooltip, Badge, Switch, FormControlLabel,
   Rating, CardActions, Collapse, InputAdornment,
   CircularProgress
@@ -13,15 +13,6 @@ import {
 import { SnackbarProvider, useSnackbar } from 'notistack';
 import { useAuth } from '../AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { 
-  School, Groups, Class, Publish, Add, Edit, Delete,
-  Visibility, Email, Phone, LocationOn, CalendarToday,
-  TrendingUp, People, Assignment, CheckCircle, Cancel,
-  ExpandMore, ExpandLess, Security, DashboardCustomize,
-  Notifications, Settings, AccountCircle, BarChart,
-  FilterList, Search, Download, Upload, Star,
-  Close
-} from '@mui/icons-material';
 import { 
   collection, 
   query, 
@@ -36,6 +27,22 @@ import {
   deleteDoc
 } from 'firebase/firestore';
 import { db } from '../firebase';
+
+// Professional color palette
+const COLORS = {
+  white: '#FFFFFF',
+  lightGray: '#F8F9FA',
+  mediumGray: '#E9ECEF',
+  darkGray: '#6C757D',
+  black: '#212529',
+  primary: '#2E7D32', // Green
+  primaryLight: '#4CAF50',
+  primaryDark: '#1B5E20',
+  success: '#28A745',
+  warning: '#FFC107',
+  error: '#DC3545',
+  info: '#17A2B8'
+};
 
 // Tab Panel Component
 function TabPanel({ children, value, index, ...other }) {
@@ -66,7 +73,7 @@ const InstituteDashboard = () => {
   const [tabValue, setTabValue] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [filteredApplications, setFilteredApplications] = useState([]); // ADD THIS LINE
+  const [filteredApplications, setFilteredApplications] = useState([]);
   const [stats, setStats] = useState({
     totalApplications: 0,
     admitted: 0,
@@ -148,7 +155,7 @@ const InstituteDashboard = () => {
 
       console.log('Applications fetched successfully:', applicationsData.length);
       setApplications(applicationsData);
-      setFilteredApplications(applicationsData); // Initialize filtered applications
+      setFilteredApplications(applicationsData);
       calculateStats(applicationsData);
     } catch (error) {
       console.error('Error fetching applications:', error);
@@ -303,7 +310,6 @@ const InstituteDashboard = () => {
       setSelectedFaculty(null);
       setFacultyData({ name: '', description: '' });
       
-      // Refresh faculties data
       await fetchFacultiesData();
       
     } catch (error) {
@@ -323,7 +329,6 @@ const InstituteDashboard = () => {
     try {
       setLoading(true);
       
-      // Check if faculty has courses
       const facultyCourses = courses.filter(course => course.facultyId === faculty.id);
       if (facultyCourses.length > 0) {
         enqueueSnackbar(`Cannot delete faculty. It has ${facultyCourses.length} course(s) associated. Please delete or reassign the courses first.`, { variant: 'error' });
@@ -335,7 +340,6 @@ const InstituteDashboard = () => {
 
       enqueueSnackbar('Faculty deleted successfully!', { variant: 'success' });
       
-      // Refresh faculties data
       await fetchFacultiesData();
       
     } catch (error) {
@@ -391,7 +395,6 @@ const InstituteDashboard = () => {
         seats: 0
       });
       
-      // Refresh courses data
       await fetchCoursesData();
       
     } catch (error) {
@@ -409,7 +412,6 @@ const InstituteDashboard = () => {
     try {
       setLoading(true);
 
-      // Check if course has applications
       const courseApplications = applications.filter(app => app.courseId === course.id);
       if (courseApplications.length > 0) {
         enqueueSnackbar(`Cannot delete course. It has ${courseApplications.length} application(s) associated.`, { variant: 'error' });
@@ -421,7 +423,6 @@ const InstituteDashboard = () => {
 
       enqueueSnackbar('Course deleted successfully!', { variant: 'success' });
       
-      // Refresh courses data
       await fetchCoursesData();
       
     } catch (error) {
@@ -432,17 +433,61 @@ const InstituteDashboard = () => {
     }
   };
 
-  // FIXED: Function to view course applications
+  // Function to view course applications
   const viewCourseApplications = (course) => {
     setSelectedCourse(course);
-    // Filter applications for this course
     const courseApplications = applications.filter(app => app.courseId === course.id);
     setFilteredApplications(courseApplications);
-    setTabValue(1); // Switch to applications tab
-    setSearchTerm(course.name); // Pre-fill search with course name
+    setTabValue(1);
+    setSearchTerm(course.name);
     setStatusFilter('all');
     
     enqueueSnackbar(`Showing ${courseApplications.length} applications for ${course.name}`, { variant: 'info' });
+  };
+
+  // Function to handle when student rejects admission offer
+  const handleStudentRejection = async (studentId) => {
+    try {
+      const studentRef = doc(db, 'applications', studentId);
+      
+      // Delete the application since student rejected the offer
+      await deleteDoc(studentRef);
+      
+      enqueueSnackbar('Student application removed as student rejected the offer', { variant: 'success' });
+      
+      // Find the next eligible student from waitlist/pending for the same course
+      const rejectedStudent = students.find(s => s.id === studentId);
+      if (rejectedStudent) {
+        const courseApplications = applications.filter(app => 
+          app.courseId === rejectedStudent.courseId && 
+          app.status === 'pending'
+        );
+        
+        if (courseApplications.length > 0) {
+          // Sort by GPA and application date to find the next best candidate
+          const nextCandidate = courseApplications.sort((a, b) => {
+            if (b.studentGPA !== a.studentGPA) {
+              return b.studentGPA - a.studentGPA;
+            }
+            return new Date(a.appliedAt) - new Date(b.appliedAt);
+          })[0];
+          
+          // Auto-admit the next candidate
+          await updateApplicationStatus(nextCandidate.id, 'admitted');
+          enqueueSnackbar(`Next candidate ${nextCandidate.studentName} automatically admitted from waitlist`, { variant: 'info' });
+        }
+      }
+      
+      // Refresh data
+      await Promise.all([
+        fetchApplicationsData(),
+        fetchAdmittedStudents()
+      ]);
+      
+    } catch (error) {
+      console.error('Error handling student rejection:', error);
+      enqueueSnackbar('Failed to process student rejection: ' + error.message, { variant: 'error' });
+    }
   };
 
   // Update filtered applications when search term or status filter changes
@@ -532,14 +577,12 @@ const InstituteDashboard = () => {
         status: 'active'
       };
 
-      // Add directly to Firebase
       await addDoc(collection(db, 'faculties'), facultyPayload);
 
       enqueueSnackbar('Faculty added successfully!', { variant: 'success' });
       setAddFacultyOpen(false);
       setFacultyData({ name: '', description: '' });
       
-      // Refresh faculties data
       await fetchFacultiesData();
       
     } catch (error) {
@@ -569,7 +612,6 @@ const InstituteDashboard = () => {
         status: 'active'
       };
 
-      // Add directly to Firebase
       await addDoc(collection(db, 'courses'), coursePayload);
 
       enqueueSnackbar('Course added successfully', { variant: 'success' });
@@ -584,7 +626,6 @@ const InstituteDashboard = () => {
         seats: 0
       });
       
-      // Refresh courses data
       await fetchCoursesData();
       
     } catch (error) {
@@ -615,7 +656,6 @@ const InstituteDashboard = () => {
       
       enqueueSnackbar(`Application status updated to ${status}`, { variant: 'success' });
       
-      // Refresh applications and students data
       await Promise.all([
         fetchApplicationsData(),
         fetchAdmittedStudents()
@@ -629,7 +669,6 @@ const InstituteDashboard = () => {
 
   const publishAdmissions = async () => {
     try {
-      // Update all pending applications to published status
       const pendingApplications = applications.filter(app => !app.status || app.status === 'pending');
       
       const updatePromises = pendingApplications.map(async (app) => {
@@ -644,7 +683,6 @@ const InstituteDashboard = () => {
       
       enqueueSnackbar('Admissions published successfully! Students can now view their status.', { variant: 'success' });
       
-      // Refresh applications data
       await fetchApplicationsData();
       
     } catch (error) {
@@ -781,52 +819,52 @@ const InstituteDashboard = () => {
   const instituteCourses = courses.filter(c => c.instituteId === instituteId);
 
   return (
-    <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
+    <Container maxWidth="xl" sx={{ mt: 2, mb: 4, backgroundColor: COLORS.lightGray, minHeight: '100vh' }}>
       {/* Header */}
-      <Paper sx={{ p: 3, mb: 3, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
+      <Paper sx={{ 
+        p: 3, 
+        mb: 3, 
+        background: `linear-gradient(135deg, ${COLORS.primary} 0%, ${COLORS.primaryLight} 100%)`, 
+        color: COLORS.white 
+      }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
             <Avatar sx={{ width: 100, height: 100, bgcolor: 'rgba(255,255,255,0.2)' }}>
-              <School sx={{ fontSize: 50 }} />
+              <Typography variant="h4" sx={{ color: COLORS.white }}>
+                {profileData.name?.charAt(0) || 'I'}
+              </Typography>
             </Avatar>
             <Box>
               <Typography variant="h3" gutterBottom fontWeight="bold">
                 {profileData.name || 'Institution Name'}
               </Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <LocationOn fontSize="small" />
-                  <Typography variant="h6">
-                    {profileData.location || 'Location not specified'}
-                  </Typography>
-                </Box>
+                <Typography variant="h6">
+                  {profileData.location || 'Location not specified'}
+                </Typography>
                 {profileData.establishedYear && (
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <CalendarToday fontSize="small" />
-                    <Typography variant="h6">
-                      Est. {profileData.establishedYear}
-                    </Typography>
-                  </Box>
+                  <Typography variant="h6">
+                    Est. {profileData.establishedYear}
+                  </Typography>
                 )}
                 <Chip 
                   label="Institute Account" 
                   variant="outlined" 
-                  sx={{ color: 'white', borderColor: 'white' }}
-                  icon={<Security />}
+                  sx={{ color: COLORS.white, borderColor: COLORS.white }}
                 />
               </Box>
             </Box>
           </Box>
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Tooltip title="Refresh Data">
-              <IconButton onClick={refreshData} sx={{ color: 'white' }}>
-                <Download />
-              </IconButton>
+              <Button onClick={refreshData} sx={{ color: COLORS.white }}>
+                Refresh
+              </Button>
             </Tooltip>
             <Tooltip title="Edit Profile">
-              <IconButton onClick={() => setEditProfileOpen(true)} sx={{ color: 'white' }}>
-                <Edit />
-              </IconButton>
+              <Button onClick={() => setEditProfileOpen(true)} sx={{ color: COLORS.white }}>
+                Edit Profile
+              </Button>
             </Tooltip>
             <Button variant="outlined" color="inherit" onClick={handleLogout}>
               Logout
@@ -836,97 +874,143 @@ const InstituteDashboard = () => {
       </Paper>
 
       {/* Connection Status */}
-      <Alert severity="success" sx={{ mb: 3, display: 'flex', alignItems: 'center' }}>
-        <CheckCircle sx={{ mr: 1 }} />
+      <Alert severity="success" sx={{ mb: 3 }}>
         Firestore connected - {applications.length} applications loaded from {instituteCourses.length} courses
       </Alert>
 
       {/* Quick Stats */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
         <Grid item xs={12} sm={6} md={2.4}>
-          <Card sx={{ p: 3, textAlign: 'center', transition: 'transform 0.2s', '&:hover': { transform: 'translateY(-4px)' } }}>
-            <People sx={{ fontSize: 48, color: '#3498db', mb: 2 }} />
-            <Typography variant="h4" color="primary" gutterBottom fontWeight="bold">
+          <Card sx={{ 
+            p: 3, 
+            textAlign: 'center', 
+            transition: 'transform 0.2s', 
+            '&:hover': { transform: 'translateY(-4px)' },
+            backgroundColor: COLORS.white,
+            border: `1px solid ${COLORS.mediumGray}`
+          }}>
+            <Typography variant="h4" sx={{ color: COLORS.primary, mb: 2 }}>Total</Typography>
+            <Typography variant="h4" sx={{ color: COLORS.primary }} gutterBottom fontWeight="bold">
               {stats.totalApplications}
             </Typography>
-            <Typography variant="h6" color="textSecondary">Total Applications</Typography>
+            <Typography variant="h6" color={COLORS.darkGray}>Total Applications</Typography>
           </Card>
         </Grid>
         <Grid item xs={12} sm={6} md={2.4}>
-          <Card sx={{ p: 3, textAlign: 'center', transition: 'transform 0.2s', '&:hover': { transform: 'translateY(-4px)' } }}>
-            <CheckCircle sx={{ fontSize: 48, color: '#2ecc71', mb: 2 }} />
-            <Typography variant="h4" color="success" gutterBottom fontWeight="bold">
+          <Card sx={{ 
+            p: 3, 
+            textAlign: 'center', 
+            transition: 'transform 0.2s', 
+            '&:hover': { transform: 'translateY(-4px)' },
+            backgroundColor: COLORS.white,
+            border: `1px solid ${COLORS.mediumGray}`
+          }}>
+            <Typography variant="h4" sx={{ color: COLORS.success, mb: 2 }}>Admitted</Typography>
+            <Typography variant="h4" sx={{ color: COLORS.success }} gutterBottom fontWeight="bold">
               {stats.admitted}
             </Typography>
-            <Typography variant="h6" color="textSecondary">Admitted</Typography>
+            <Typography variant="h6" color={COLORS.darkGray}>Admitted</Typography>
           </Card>
         </Grid>
         <Grid item xs={12} sm={6} md={2.4}>
-          <Card sx={{ p: 3, textAlign: 'center', transition: 'transform 0.2s', '&:hover': { transform: 'translateY(-4px)' } }}>
-            <Cancel sx={{ fontSize: 48, color: '#e74c3c', mb: 2 }} />
-            <Typography variant="h4" color="error" gutterBottom fontWeight="bold">
+          <Card sx={{ 
+            p: 3, 
+            textAlign: 'center', 
+            transition: 'transform 0.2s', 
+            '&:hover': { transform: 'translateY(-4px)' },
+            backgroundColor: COLORS.white,
+            border: `1px solid ${COLORS.mediumGray}`
+          }}>
+            <Typography variant="h4" sx={{ color: COLORS.error, mb: 2 }}>Rejected</Typography>
+            <Typography variant="h4" sx={{ color: COLORS.error }} gutterBottom fontWeight="bold">
               {stats.rejected}
             </Typography>
-            <Typography variant="h6" color="textSecondary">Rejected</Typography>
+            <Typography variant="h6" color={COLORS.darkGray}>Rejected</Typography>
           </Card>
         </Grid>
         <Grid item xs={12} sm={6} md={2.4}>
-          <Card sx={{ p: 3, textAlign: 'center', transition: 'transform 0.2s', '&:hover': { transform: 'translateY(-4px)' } }}>
-            <Assignment sx={{ fontSize: 48, color: '#f39c12', mb: 2 }} />
-            <Typography variant="h4" color="warning" gutterBottom fontWeight="bold">
+          <Card sx={{ 
+            p: 3, 
+            textAlign: 'center', 
+            transition: 'transform 0.2s', 
+            '&:hover': { transform: 'translateY(-4px)' },
+            backgroundColor: COLORS.white,
+            border: `1px solid ${COLORS.mediumGray}`
+          }}>
+            <Typography variant="h4" sx={{ color: COLORS.warning, mb: 2 }}>Pending</Typography>
+            <Typography variant="h4" sx={{ color: COLORS.warning }} gutterBottom fontWeight="bold">
               {stats.pending}
             </Typography>
-            <Typography variant="h6" color="textSecondary">Pending</Typography>
+            <Typography variant="h6" color={COLORS.darkGray}>Pending</Typography>
           </Card>
         </Grid>
         <Grid item xs={12} sm={6} md={2.4}>
-          <Card sx={{ p: 3, textAlign: 'center', transition: 'transform 0.2s', '&:hover': { transform: 'translateY(-4px)' } }}>
-            <TrendingUp sx={{ fontSize: 48, color: '#9b59b6', mb: 2 }} />
-            <Typography variant="h4" color="secondary" gutterBottom fontWeight="bold">
+          <Card sx={{ 
+            p: 3, 
+            textAlign: 'center', 
+            transition: 'transform 0.2s', 
+            '&:hover': { transform: 'translateY(-4px)' },
+            backgroundColor: COLORS.white,
+            border: `1px solid ${COLORS.mediumGray}`
+          }}>
+            <Typography variant="h4" sx={{ color: COLORS.primaryLight, mb: 2 }}>Rate</Typography>
+            <Typography variant="h4" sx={{ color: COLORS.primaryLight }} gutterBottom fontWeight="bold">
               {stats.admissionRate}%
             </Typography>
-            <Typography variant="h6" color="textSecondary">Admission Rate</Typography>
+            <Typography variant="h6" color={COLORS.darkGray}>Admission Rate</Typography>
           </Card>
         </Grid>
       </Grid>
 
       {/* Main Content with Tabs */}
-      <Paper sx={{ width: '100%' }}>
+      <Paper sx={{ width: '100%', backgroundColor: COLORS.white }}>
         <Tabs 
           value={tabValue} 
           onChange={(e, newValue) => setTabValue(newValue)}
-          sx={{ borderBottom: 1, borderColor: 'divider' }}
+          sx={{ 
+            borderBottom: 1, 
+            borderColor: COLORS.mediumGray,
+            '& .MuiTab-root': {
+              color: COLORS.darkGray,
+              '&.Mui-selected': {
+                color: COLORS.primary,
+              },
+            },
+            '& .MuiTabs-indicator': {
+              backgroundColor: COLORS.primary,
+            },
+          }}
           variant="scrollable"
           scrollButtons="auto"
         >
-          <Tab icon={<DashboardCustomize />} label="Dashboard" />
-          <Tab icon={<Assignment />} label={`Applications (${applications.length})`} />
-          <Tab icon={<Class />} label={`Faculties (${faculties.length})`} />
-          <Tab icon={<School />} label={`Courses (${instituteCourses.length})`} />
-          <Tab icon={<People />} label="Students" />
-          <Tab icon={<Settings />} label="Settings" />
+          <Tab label="Dashboard" />
+          <Tab label={`Applications (${applications.length})`} />
+          <Tab label={`Faculties (${faculties.length})`} />
+          <Tab label={`Courses (${instituteCourses.length})`} />
+          <Tab label="Students" />
+          <Tab label="Settings" />
         </Tabs>
 
         {/* Dashboard Tab */}
         <TabPanel value={tabValue} index={0}>
           <Grid container spacing={3}>
             <Grid item xs={12} lg={8}>
-              <Paper sx={{ p: 3 }}>
-                <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <TrendingUp /> Application Analytics
+              <Paper sx={{ p: 3, backgroundColor: COLORS.white, border: `1px solid ${COLORS.mediumGray}` }}>
+                <Typography variant="h5" gutterBottom color={COLORS.black}>
+                  Application Analytics
                 </Typography>
-                <Box sx={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'grey.50' }}>
+                <Box sx={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: COLORS.lightGray }}>
                   <Box sx={{ textAlign: 'center' }}>
-                    <Typography variant="h6" gutterBottom>
+                    <Typography variant="h6" gutterBottom color={COLORS.black}>
                       Application Overview
                     </Typography>
-                    <Typography variant="body1" color="textSecondary" gutterBottom>
+                    <Typography variant="body1" color={COLORS.darkGray} gutterBottom>
                       Total Applications: <strong>{stats.totalApplications}</strong>
                     </Typography>
-                    <Typography variant="body1" color="textSecondary" gutterBottom>
+                    <Typography variant="body1" color={COLORS.darkGray} gutterBottom>
                       Admitted Students: <strong>{stats.admitted}</strong>
                     </Typography>
-                    <Typography variant="body1" color="textSecondary">
+                    <Typography variant="body1" color={COLORS.darkGray}>
                       Admission Rate: <strong>{stats.admissionRate}%</strong>
                     </Typography>
                   </Box>
@@ -934,26 +1018,42 @@ const InstituteDashboard = () => {
               </Paper>
             </Grid>
             <Grid item xs={12} lg={4}>
-              <Paper sx={{ p: 3 }}>
-                <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Notifications /> Quick Actions
+              <Paper sx={{ p: 3, backgroundColor: COLORS.white, border: `1px solid ${COLORS.mediumGray}` }}>
+                <Typography variant="h5" gutterBottom color={COLORS.black}>
+                  Quick Actions
                 </Typography>
                 <List>
                   <ListItem button onClick={() => setAddCourseOpen(true)}>
-                    <ListItemIcon><Add color="primary" /></ListItemIcon>
-                    <ListItemText primary="Add New Course" secondary="Create a new course offering" />
+                    <ListItemText 
+                      primary="Add New Course" 
+                      primaryTypographyProps={{ color: COLORS.black }}
+                      secondary="Create a new course offering"
+                      secondaryTypographyProps={{ color: COLORS.darkGray }}
+                    />
                   </ListItem>
                   <ListItem button onClick={() => setAddFacultyOpen(true)}>
-                    <ListItemIcon><Add color="primary" /></ListItemIcon>
-                    <ListItemText primary="Add New Faculty" secondary="Create a new faculty department" />
+                    <ListItemText 
+                      primary="Add New Faculty" 
+                      primaryTypographyProps={{ color: COLORS.black }}
+                      secondary="Create a new faculty department"
+                      secondaryTypographyProps={{ color: COLORS.darkGray }}
+                    />
                   </ListItem>
                   <ListItem button onClick={publishAdmissions}>
-                    <ListItemIcon><Publish color="primary" /></ListItemIcon>
-                    <ListItemText primary="Publish Admissions" secondary="Make admission results public" />
+                    <ListItemText 
+                      primary="Publish Admissions" 
+                      primaryTypographyProps={{ color: COLORS.black }}
+                      secondary="Make admission results public"
+                      secondaryTypographyProps={{ color: COLORS.darkGray }}
+                    />
                   </ListItem>
                   <ListItem button onClick={exportApplications}>
-                    <ListItemIcon><Download color="primary" /></ListItemIcon>
-                    <ListItemText primary="Export Data" secondary="Download applications as CSV" />
+                    <ListItemText 
+                      primary="Export Data" 
+                      primaryTypographyProps={{ color: COLORS.black }}
+                      secondary="Download applications as CSV"
+                      secondaryTypographyProps={{ color: COLORS.darkGray }}
+                    />
                   </ListItem>
                 </List>
               </Paper>
@@ -968,9 +1068,6 @@ const InstituteDashboard = () => {
               placeholder="Search applications..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              InputProps={{
-                startAdornment: <InputAdornment position="start"><Search /></InputAdornment>,
-              }}
               sx={{ minWidth: 250 }}
             />
             <Select
@@ -984,22 +1081,22 @@ const InstituteDashboard = () => {
               <MenuItem value="rejected">Rejected</MenuItem>
             </Select>
             <Button 
-              startIcon={<Download />} 
               onClick={exportApplications}
               variant="outlined"
               disabled={applications.length === 0}
+              sx={{ borderColor: COLORS.primary, color: COLORS.primary }}
             >
               Export
             </Button>
             <Button 
-              startIcon={<Download />} 
               onClick={refreshData}
               variant="outlined"
+              sx={{ borderColor: COLORS.darkGray, color: COLORS.darkGray }}
             >
               Refresh
             </Button>
             <Box sx={{ flexGrow: 1 }} />
-            <Typography color="textSecondary">
+            <Typography color={COLORS.darkGray}>
               Showing {filteredApplications.length} of {applications.length} applications
             </Typography>
           </Box>
@@ -1008,28 +1105,28 @@ const InstituteDashboard = () => {
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell><strong>Student</strong></TableCell>
-                  <TableCell><strong>Course & Faculty</strong></TableCell>
-                  <TableCell><strong>Academic Info</strong></TableCell>
-                  <TableCell><strong>Applied Date</strong></TableCell>
-                  <TableCell><strong>Status</strong></TableCell>
-                  <TableCell><strong>Actions</strong></TableCell>
+                  <TableCell><Typography color={COLORS.black} fontWeight="bold">Student</Typography></TableCell>
+                  <TableCell><Typography color={COLORS.black} fontWeight="bold">Course & Faculty</Typography></TableCell>
+                  <TableCell><Typography color={COLORS.black} fontWeight="bold">Academic Info</Typography></TableCell>
+                  <TableCell><Typography color={COLORS.black} fontWeight="bold">Applied Date</Typography></TableCell>
+                  <TableCell><Typography color={COLORS.black} fontWeight="bold">Status</Typography></TableCell>
+                  <TableCell><Typography color={COLORS.black} fontWeight="bold">Actions</Typography></TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {filteredApplications.map(application => (
-                  <TableRow key={application.id} hover>
+                  <TableRow key={application.id} hover sx={{ '&:hover': { backgroundColor: COLORS.lightGray } }}>
                     <TableCell>
                       <Box>
-                        <Typography fontWeight="bold">{application.studentName || 'Unknown Student'}</Typography>
-                        <Typography variant="body2" color="textSecondary">
+                        <Typography fontWeight="bold" color={COLORS.black}>{application.studentName || 'Unknown Student'}</Typography>
+                        <Typography variant="body2" color={COLORS.darkGray}>
                           {application.studentEmail || 'No email'}
                         </Typography>
                       </Box>
                     </TableCell>
                     <TableCell>
-                      <Typography fontWeight="medium">{application.courseName || 'Unknown Course'}</Typography>
-                      <Typography variant="body2" color="textSecondary">
+                      <Typography fontWeight="medium" color={COLORS.black}>{application.courseName || 'Unknown Course'}</Typography>
+                      <Typography variant="body2" color={COLORS.darkGray}>
                         {application.facultyName || 'Unknown Faculty'}
                       </Typography>
                     </TableCell>
@@ -1061,33 +1158,27 @@ const InstituteDashboard = () => {
                     </TableCell>
                     <TableCell>
                       <Box sx={{ display: 'flex', gap: 1 }}>
-                        <Tooltip title="View Details">
-                          <IconButton 
-                            size="small" 
-                            onClick={() => viewApplicationDetails(application)}
-                            color="primary"
-                          >
-                            <Visibility />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Admit Student">
-                          <IconButton 
-                            size="small" 
-                            onClick={() => updateApplicationStatus(application.id, 'admitted')}
-                            color="success"
-                          >
-                            <CheckCircle />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Reject Application">
-                          <IconButton 
-                            size="small" 
-                            onClick={() => updateApplicationStatus(application.id, 'rejected')}
-                            color="error"
-                          >
-                            <Cancel />
-                          </IconButton>
-                        </Tooltip>
+                        <Button 
+                          size="small" 
+                          onClick={() => viewApplicationDetails(application)}
+                          sx={{ color: COLORS.primary }}
+                        >
+                          View
+                        </Button>
+                        <Button 
+                          size="small" 
+                          onClick={() => updateApplicationStatus(application.id, 'admitted')}
+                          sx={{ color: COLORS.success }}
+                        >
+                          Admit
+                        </Button>
+                        <Button 
+                          size="small" 
+                          onClick={() => updateApplicationStatus(application.id, 'rejected')}
+                          sx={{ color: COLORS.error }}
+                        >
+                          Reject
+                        </Button>
                       </Box>
                     </TableCell>
                   </TableRow>
@@ -1106,13 +1197,13 @@ const InstituteDashboard = () => {
         {/* Faculties Tab */}
         <TabPanel value={tabValue} index={2}>
           <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="h6">
+            <Typography variant="h6" color={COLORS.black}>
               Manage Faculties ({faculties.length})
             </Typography>
             <Button 
               variant="contained" 
-              startIcon={<Add />}
               onClick={() => setAddFacultyOpen(true)}
+              sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.primaryDark } }}
             >
               Add Faculty
             </Button>
@@ -1121,48 +1212,53 @@ const InstituteDashboard = () => {
           <Grid container spacing={3}>
             {faculties.map(faculty => (
               <Grid item xs={12} md={6} lg={4} key={faculty.id}>
-                <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <Card sx={{ 
+                  height: '100%', 
+                  display: 'flex', 
+                  flexDirection: 'column',
+                  backgroundColor: COLORS.white,
+                  border: `1px solid ${COLORS.mediumGray}`
+                }}>
                   <CardContent sx={{ flexGrow: 1 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                      <Typography variant="h6" gutterBottom>
+                      <Typography variant="h6" gutterBottom color={COLORS.black}>
                         {faculty.name}
                       </Typography>
                       <Chip 
                         label={`${instituteCourses.filter(c => c.facultyId === faculty.id).length} courses`}
                         size="small"
-                        color="primary"
+                        sx={{ backgroundColor: COLORS.primary, color: COLORS.white }}
                       />
                     </Box>
-                    <Typography variant="body2" color="textSecondary" paragraph>
+                    <Typography variant="body2" color={COLORS.darkGray} paragraph>
                       {faculty.description || 'No description provided.'}
                     </Typography>
-                    <Typography variant="caption" color="textSecondary">
+                    <Typography variant="caption" color={COLORS.darkGray}>
                       Created: {formatDate(faculty.createdAt)}
                     </Typography>
                   </CardContent>
                   <CardActions>
                     <Button 
                       size="small" 
-                      startIcon={<Edit />}
                       onClick={() => editFaculty(faculty)}
+                      sx={{ color: COLORS.primary }}
                     >
                       Edit
                     </Button>
                     <Button 
                       size="small" 
-                      startIcon={<School />}
                       onClick={() => viewFacultyCourses(faculty)}
+                      sx={{ color: COLORS.primaryLight }}
                     >
                       View Courses ({instituteCourses.filter(c => c.facultyId === faculty.id).length})
                     </Button>
-                    <IconButton 
+                    <Button 
                       size="small" 
-                      color="error"
+                      sx={{ color: COLORS.error, ml: 'auto' }}
                       onClick={() => deleteFaculty(faculty)}
-                      sx={{ ml: 'auto' }}
                     >
-                      <Delete />
-                    </IconButton>
+                      Delete
+                    </Button>
                   </CardActions>
                 </Card>
               </Grid>
@@ -1179,13 +1275,13 @@ const InstituteDashboard = () => {
         {/* Courses Tab */}
         <TabPanel value={tabValue} index={3}>
           <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="h6">
+            <Typography variant="h6" color={COLORS.black}>
               Manage Courses ({instituteCourses.length})
             </Typography>
             <Button 
               variant="contained" 
-              startIcon={<Add />}
               onClick={() => setAddCourseOpen(true)}
+              sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.primaryDark } }}
             >
               Add Course
             </Button>
@@ -1198,65 +1294,73 @@ const InstituteDashboard = () => {
               
               return (
                 <Grid item xs={12} md={6} lg={4} key={course.id}>
-                  <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                  <Card sx={{ 
+                    height: '100%', 
+                    display: 'flex', 
+                    flexDirection: 'column',
+                    backgroundColor: COLORS.white,
+                    border: `1px solid ${COLORS.mediumGray}`
+                  }}>
                     <CardContent sx={{ flexGrow: 1 }}>
-                      <Typography variant="h6" gutterBottom>
+                      <Typography variant="h6" gutterBottom color={COLORS.black}>
                         {course.name}
                       </Typography>
-                      <Typography variant="body2" color="textSecondary" gutterBottom>
+                      <Typography variant="body2" color={COLORS.darkGray} gutterBottom>
                         {faculty?.name || 'No Faculty'}
                       </Typography>
-                      <Typography variant="body2" paragraph>
+                      <Typography variant="body2" paragraph color={COLORS.black}>
                         {course.description || 'No description provided.'}
                       </Typography>
                       
                       <Box sx={{ mb: 2 }}>
-                        <Typography variant="body2" color="textSecondary">
+                        <Typography variant="body2" color={COLORS.darkGray}>
                           Requirements:
                         </Typography>
                         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 1 }}>
-                          <Chip label={`Min GPA: ${course.requirements?.minGPA || 'N/A'}`} size="small" />
+                          {course.requirements?.minGPA && (
+                            <Chip label={`Min GPA: ${course.requirements.minGPA}`} size="small" variant="outlined" />
+                          )}
                           {course.requirements?.entranceExam && (
-                            <Chip label="Entrance Exam" size="small" color="primary" />
+                            <Chip label="Entrance Exam" size="small" sx={{ backgroundColor: COLORS.primary, color: COLORS.white }} />
                           )}
                         </Box>
                       </Box>
 
                       <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <Typography variant="body2">
+                        <Typography variant="body2" color={COLORS.black}>
                           <strong>Duration:</strong> {course.duration || 'Not specified'}
                         </Typography>
-                        <Typography variant="body2">
+                        <Typography variant="body2" color={COLORS.black}>
                           <strong>Seats:</strong> {course.seats || 'N/A'}
                         </Typography>
                       </Box>
                     </CardContent>
                     <CardActions sx={{ justifyContent: 'space-between' }}>
-                      <Typography variant="body2" color="textSecondary">
+                      <Typography variant="body2" color={COLORS.darkGray}>
                         {courseApplications.length} applications
                       </Typography>
                       <Box>
                         <Button 
                           size="small" 
-                          startIcon={<Edit />}
                           onClick={() => editCourse(course)}
+                          sx={{ color: COLORS.primary }}
                         >
                           Edit
                         </Button>
                         <Button 
                           size="small" 
-                          startIcon={<People />}
                           onClick={() => viewCourseApplications(course)}
+                          sx={{ color: COLORS.primaryLight }}
                         >
                           View Apps
                         </Button>
-                        <IconButton 
+                        <Button 
                           size="small" 
-                          color="error"
+                          sx={{ color: COLORS.error }}
                           onClick={() => deleteCourse(course)}
                         >
-                          <Delete />
-                        </IconButton>
+                          Delete
+                        </Button>
                       </Box>
                     </CardActions>
                   </Card>
@@ -1274,7 +1378,7 @@ const InstituteDashboard = () => {
 
         {/* Students Tab */}
         <TabPanel value={tabValue} index={4}>
-          <Typography variant="h6" gutterBottom>
+          <Typography variant="h6" gutterBottom color={COLORS.black}>
             Admitted Students ({students.length})
           </Typography>
           
@@ -1282,32 +1386,44 @@ const InstituteDashboard = () => {
             <Grid container spacing={3}>
               {students.map(student => (
                 <Grid item xs={12} md={6} lg={4} key={student.id}>
-                  <Card>
+                  <Card sx={{ backgroundColor: COLORS.white, border: `1px solid ${COLORS.mediumGray}` }}>
                     <CardContent>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-                        <Avatar sx={{ bgcolor: 'primary.main' }}>
+                        <Avatar sx={{ bgcolor: COLORS.primary }}>
                           {student.studentName?.charAt(0) || 'S'}
                         </Avatar>
                         <Box>
-                          <Typography variant="h6">{student.studentName || 'Unknown Student'}</Typography>
-                          <Typography variant="body2" color="textSecondary">
+                          <Typography variant="h6" color={COLORS.black}>{student.studentName || 'Unknown Student'}</Typography>
+                          <Typography variant="body2" color={COLORS.darkGray}>
                             {student.studentEmail || 'No email'}
                           </Typography>
                         </Box>
                       </Box>
                       
-                      <Typography variant="body2" gutterBottom>
+                      <Typography variant="body2" gutterBottom color={COLORS.black}>
                         <strong>Course:</strong> {student.courseName || 'Unknown Course'}
                       </Typography>
-                      <Typography variant="body2" gutterBottom>
+                      <Typography variant="body2" gutterBottom color={COLORS.black}>
+                        <strong>Faculty:</strong> {student.facultyName || 'Unknown Faculty'}
+                      </Typography>
+                      <Typography variant="body2" gutterBottom color={COLORS.black}>
                         <strong>Admission Date:</strong> {formatDate(student.admittedAt)}
                       </Typography>
-                      <Chip 
-                        label="Admitted" 
-                        color="success" 
-                        size="small"
-                        sx={{ mt: 1 }}
-                      />
+                      <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
+                        <Chip 
+                          label="Admitted" 
+                          sx={{ backgroundColor: COLORS.success, color: COLORS.white }}
+                          size="small"
+                        />
+                        <Button 
+                          size="small" 
+                          sx={{ color: COLORS.error }}
+                          variant="outlined"
+                          onClick={() => handleStudentRejection(student.id)}
+                        >
+                          Student Rejected Offer
+                        </Button>
+                      </Box>
                     </CardContent>
                   </Card>
                 </Grid>
@@ -1324,36 +1440,47 @@ const InstituteDashboard = () => {
         <TabPanel value={tabValue} index={5}>
           <Grid container spacing={3}>
             <Grid item xs={12} md={6}>
-              <Paper sx={{ p: 3 }}>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <AccountCircle /> Institute Profile
+              <Paper sx={{ p: 3, backgroundColor: COLORS.white, border: `1px solid ${COLORS.mediumGray}` }}>
+                <Typography variant="h6" gutterBottom color={COLORS.black}>
+                  Institute Profile
                 </Typography>
                 <Button 
                   variant="outlined" 
-                  startIcon={<Edit />}
                   onClick={() => setEditProfileOpen(true)}
-                  sx={{ mt: 1 }}
+                  sx={{ mt: 1, borderColor: COLORS.primary, color: COLORS.primary }}
                 >
                   Edit Profile
                 </Button>
                 
                 <List sx={{ mt: 2 }}>
                   <ListItem>
-                    <ListItemIcon><LocationOn color="primary" /></ListItemIcon>
-                    <ListItemText primary="Location" secondary={profileData.location || 'Not specified'} />
+                    <ListItemText 
+                      primary="Location" 
+                      primaryTypographyProps={{ color: COLORS.black }}
+                      secondary={profileData.location || 'Not specified'} 
+                    />
                   </ListItem>
                   <ListItem>
-                    <ListItemIcon><Email color="primary" /></ListItemIcon>
-                    <ListItemText primary="Contact Email" secondary={profileData.contactEmail || 'Not specified'} />
+                    <ListItemText 
+                      primary="Contact Email" 
+                      primaryTypographyProps={{ color: COLORS.black }}
+                      secondary={profileData.contactEmail || 'Not specified'} 
+                    />
                   </ListItem>
                   <ListItem>
-                    <ListItemIcon><Phone color="primary" /></ListItemIcon>
-                    <ListItemText primary="Phone" secondary={profileData.phone || 'Not specified'} />
+                    <ListItemText 
+                      primary="Phone" 
+                      primaryTypographyProps={{ color: COLORS.black }}
+                      secondary={profileData.phone || 'Not specified'} 
+                    />
                   </ListItem>
                   {profileData.website && (
                     <ListItem>
-                      <ListItemIcon><School color="primary" /></ListItemIcon>
-                      <ListItemText primary="Website" secondary={profileData.website} />
+                      <ListItemText 
+                        primary="Website" 
+                        primaryTypographyProps={{ color: COLORS.black }}
+                        secondary={profileData.website} 
+                      />
                     </ListItem>
                   )}
                 </List>
@@ -1361,29 +1488,35 @@ const InstituteDashboard = () => {
             </Grid>
             
             <Grid item xs={12} md={6}>
-              <Paper sx={{ p: 3 }}>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Settings /> System Settings
+              <Paper sx={{ p: 3, backgroundColor: COLORS.white, border: `1px solid ${COLORS.mediumGray}` }}>
+                <Typography variant="h6" gutterBottom color={COLORS.black}>
+                  System Settings
                 </Typography>
                 <List>
                   <ListItem>
                     <ListItemText 
                       primary="Automatic Application Processing" 
+                      primaryTypographyProps={{ color: COLORS.black }}
                       secondary="Automatically admit students who meet requirements" 
+                      secondaryTypographyProps={{ color: COLORS.darkGray }}
                     />
                     <Switch />
                   </ListItem>
                   <ListItem>
                     <ListItemText 
                       primary="Email Notifications" 
+                      primaryTypographyProps={{ color: COLORS.black }}
                       secondary="Send email updates to students" 
+                      secondaryTypographyProps={{ color: COLORS.darkGray }}
                     />
                     <Switch defaultChecked />
                   </ListItem>
                   <ListItem>
                     <ListItemText 
                       primary="Public Profile" 
+                      primaryTypographyProps={{ color: COLORS.black }}
                       secondary="Show institute in public directory" 
+                      secondaryTypographyProps={{ color: COLORS.darkGray }}
                     />
                     <Switch defaultChecked />
                   </ListItem>
@@ -1397,9 +1530,7 @@ const InstituteDashboard = () => {
       {/* Add Faculty Dialog */}
       <Dialog open={addFacultyOpen} onClose={() => setAddFacultyOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Class /> Add New Faculty
-          </Box>
+          <Typography variant="h6" color={COLORS.black}>Add New Faculty</Typography>
         </DialogTitle>
         <DialogContent>
           <Box sx={{ mt: 2 }}>
@@ -1432,7 +1563,7 @@ const InstituteDashboard = () => {
             onClick={addFaculty}
             variant="contained"
             disabled={!facultyData.name.trim() || loading}
-            startIcon={loading ? <CircularProgress size={20} /> : <Add />}
+            sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.primaryDark } }}
           >
             {loading ? 'Adding...' : 'Add Faculty'}
           </Button>
@@ -1442,9 +1573,7 @@ const InstituteDashboard = () => {
       {/* Edit Faculty Dialog */}
       <Dialog open={editFacultyOpen} onClose={() => setEditFacultyOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Class /> Edit Faculty
-          </Box>
+          <Typography variant="h6" color={COLORS.black}>Edit Faculty</Typography>
         </DialogTitle>
         <DialogContent>
           <Box sx={{ mt: 2 }}>
@@ -1475,7 +1604,7 @@ const InstituteDashboard = () => {
             onClick={updateFaculty}
             variant="contained"
             disabled={!facultyData.name.trim() || loading}
-            startIcon={loading ? <CircularProgress size={20} /> : <Edit />}
+            sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.primaryDark } }}
           >
             {loading ? 'Updating...' : 'Update Faculty'}
           </Button>
@@ -1486,12 +1615,12 @@ const InstituteDashboard = () => {
       <Dialog open={viewCoursesOpen} onClose={() => setViewCoursesOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'space-between' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <School /> Courses in {selectedFaculty?.name}
-            </Box>
-            <IconButton onClick={() => setViewCoursesOpen(false)}>
-              <Close />
-            </IconButton>
+            <Typography variant="h6" color={COLORS.black}>
+              Courses in {selectedFaculty?.name}
+            </Typography>
+            <Button onClick={() => setViewCoursesOpen(false)}>
+              Close
+            </Button>
           </Box>
         </DialogTitle>
         <DialogContent>
@@ -1501,8 +1630,8 @@ const InstituteDashboard = () => {
                 <Grid item xs={12} key={course.id}>
                   <Card variant="outlined">
                     <CardContent>
-                      <Typography variant="h6">{course.name}</Typography>
-                      <Typography variant="body2" color="textSecondary" paragraph>
+                      <Typography variant="h6" color={COLORS.black}>{course.name}</Typography>
+                      <Typography variant="body2" color={COLORS.darkGray} paragraph>
                         {course.description || 'No description provided.'}
                       </Typography>
                       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
@@ -1510,28 +1639,28 @@ const InstituteDashboard = () => {
                         <Chip label={`Seats: ${course.seats || 'N/A'}`} size="small" />
                         <Chip label={`Min GPA: ${course.requirements?.minGPA || 'N/A'}`} size="small" />
                         {course.requirements?.entranceExam && (
-                          <Chip label="Entrance Exam" size="small" color="primary" />
+                          <Chip label="Entrance Exam" size="small" sx={{ backgroundColor: COLORS.primary, color: COLORS.white }} />
                         )}
                       </Box>
                     </CardContent>
                     <CardActions>
                       <Button 
                         size="small" 
-                        startIcon={<Edit />}
                         onClick={() => {
                           setViewCoursesOpen(false);
                           editCourse(course);
                         }}
+                        sx={{ color: COLORS.primary }}
                       >
                         Edit
                       </Button>
                       <Button 
                         size="small" 
-                        startIcon={<People />}
                         onClick={() => {
                           setViewCoursesOpen(false);
                           viewCourseApplications(course);
                         }}
+                        sx={{ color: COLORS.primaryLight }}
                       >
                         View Applications ({applications.filter(app => app.courseId === course.id).length})
                       </Button>
@@ -1555,6 +1684,7 @@ const InstituteDashboard = () => {
               setAddCourseOpen(true);
               setCourseData(prev => ({ ...prev, facultyId: selectedFaculty?.id || '' }));
             }}
+            sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.primaryDark } }}
           >
             Add Course to this Faculty
           </Button>
@@ -1564,9 +1694,7 @@ const InstituteDashboard = () => {
       {/* Add Course Dialog */}
       <Dialog open={addCourseOpen} onClose={() => setAddCourseOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <School /> Add New Course
-          </Box>
+          <Typography variant="h6" color={COLORS.black}>Add New Course</Typography>
         </DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
@@ -1671,6 +1799,7 @@ const InstituteDashboard = () => {
             onClick={addCourse}
             variant="contained"
             disabled={!courseData.facultyId || !courseData.name.trim()}
+            sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.primaryDark } }}
           >
             Add Course
           </Button>
@@ -1680,9 +1809,7 @@ const InstituteDashboard = () => {
       {/* Edit Course Dialog */}
       <Dialog open={editCourseOpen} onClose={() => setEditCourseOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <School /> Edit Course
-          </Box>
+          <Typography variant="h6" color={COLORS.black}>Edit Course</Typography>
         </DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
@@ -1783,6 +1910,7 @@ const InstituteDashboard = () => {
             onClick={updateCourse}
             variant="contained"
             disabled={!courseData.facultyId || !courseData.name.trim()}
+            sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.primaryDark } }}
           >
             Update Course
           </Button>
@@ -1792,9 +1920,7 @@ const InstituteDashboard = () => {
       {/* Edit Profile Dialog */}
       <Dialog open={editProfileOpen} onClose={() => setEditProfileOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <AccountCircle /> Edit Institute Profile
-          </Box>
+          <Typography variant="h6" color={COLORS.black}>Edit Institute Profile</Typography>
         </DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
@@ -1868,6 +1994,7 @@ const InstituteDashboard = () => {
           <Button 
             onClick={updateProfileHandler}
             variant="contained"
+            sx={{ backgroundColor: COLORS.primary, '&:hover': { backgroundColor: COLORS.primaryDark } }}
           >
             Update Profile
           </Button>
@@ -1877,28 +2004,28 @@ const InstituteDashboard = () => {
       {/* View Application Dialog */}
       <Dialog open={viewApplicationOpen} onClose={() => setViewApplicationOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
-          Application Details
+          <Typography variant="h6" color={COLORS.black}>Application Details</Typography>
         </DialogTitle>
         <DialogContent>
           {selectedApplication && (
             <Grid container spacing={3}>
               <Grid item xs={12} sm={6}>
-                <Typography variant="h6" gutterBottom>Student Information</Typography>
-                <Typography><strong>Name:</strong> {selectedApplication.studentName}</Typography>
-                <Typography><strong>Email:</strong> {selectedApplication.studentEmail}</Typography>
-                <Typography><strong>GPA:</strong> {selectedApplication.studentGPA}</Typography>
+                <Typography variant="h6" gutterBottom color={COLORS.black}>Student Information</Typography>
+                <Typography color={COLORS.black}><strong>Name:</strong> {selectedApplication.studentName}</Typography>
+                <Typography color={COLORS.black}><strong>Email:</strong> {selectedApplication.studentEmail}</Typography>
+                <Typography color={COLORS.black}><strong>GPA:</strong> {selectedApplication.studentGPA}</Typography>
               </Grid>
               <Grid item xs={12} sm={6}>
-                <Typography variant="h6" gutterBottom>Course Information</Typography>
-                <Typography><strong>Course:</strong> {selectedApplication.courseName}</Typography>
-                <Typography><strong>Faculty:</strong> {selectedApplication.facultyName}</Typography>
-                <Typography><strong>Applied:</strong> {formatDate(selectedApplication.appliedAt)}</Typography>
+                <Typography variant="h6" gutterBottom color={COLORS.black}>Course Information</Typography>
+                <Typography color={COLORS.black}><strong>Course:</strong> {selectedApplication.courseName}</Typography>
+                <Typography color={COLORS.black}><strong>Faculty:</strong> {selectedApplication.facultyName}</Typography>
+                <Typography color={COLORS.black}><strong>Applied:</strong> {formatDate(selectedApplication.appliedAt)}</Typography>
               </Grid>
               <Grid item xs={12}>
                 <Divider />
               </Grid>
               <Grid item xs={12}>
-                <Typography variant="h6" gutterBottom>Application Status</Typography>
+                <Typography variant="h6" gutterBottom color={COLORS.black}>Application Status</Typography>
                 <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
                   <Chip 
                     label={selectedApplication.status} 
@@ -1908,7 +2035,7 @@ const InstituteDashboard = () => {
                   <Button 
                     size="small" 
                     variant="outlined" 
-                    color="success"
+                    sx={{ color: COLORS.success }}
                     onClick={() => updateApplicationStatus(selectedApplication.id, 'admitted')}
                   >
                     Admit
@@ -1916,7 +2043,7 @@ const InstituteDashboard = () => {
                   <Button 
                     size="small" 
                     variant="outlined" 
-                    color="error"
+                    sx={{ color: COLORS.error }}
                     onClick={() => updateApplicationStatus(selectedApplication.id, 'rejected')}
                   >
                     Reject

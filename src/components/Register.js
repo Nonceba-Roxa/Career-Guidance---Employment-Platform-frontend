@@ -17,7 +17,6 @@ import {
   DialogActions,
   CircularProgress
 } from '@mui/material';
-import { ArrowBack, CheckCircle, Email } from '@mui/icons-material';
 
 const Register = () => {
   const { role } = useParams();
@@ -31,21 +30,22 @@ const Register = () => {
   const { signup } = useAuth();
   const navigate = useNavigate();
 
+  // Professional color scheme (no blue)
   const roleConfig = {
     student: { 
       title: 'Student Registration', 
       description: 'Join to discover opportunities', 
-      color: '#1976d2' 
+      color: '#6d4c41' // Brown
     },
     institute: { 
       title: 'Institute Registration', 
       description: 'Manage courses and applications', 
-      color: '#2e7d32' 
+      color: '#2e7d32' // Green
     },
     company: { 
       title: 'Company Registration', 
       description: 'Post jobs and find graduates', 
-      color: '#ed6c02' 
+      color: '#ed6c02' // Orange
     },
   };
 
@@ -155,21 +155,31 @@ const Register = () => {
     navigate(`/login/${role}`);
   };
 
-  const handleResendVerification = async () => {
-    // This would be handled in the login component after user logs in
-    setShowVerificationDialog(false);
-    navigate(`/login/${role}`);
-  };
-
   return (
-    <Container maxWidth="sm" sx={{ py: 8 }}>
-      <Button startIcon={<ArrowBack />} onClick={() => navigate('/select-role')} sx={{ mb: 3 }}>
+    <Container maxWidth="sm" sx={{ py: 8, backgroundColor: '#fafafa', minHeight: '100vh' }}>
+      <Button 
+        onClick={() => navigate('/select-role')} 
+        sx={{ 
+          mb: 3, 
+          color: '#5d4037',
+          textTransform: 'none'
+        }}
+      >
         Back to Role Selection
       </Button>
 
-      <Card sx={{ borderTop: `4px solid ${currentRole.color}`, borderRadius: 2 }}>
+      <Card sx={{ 
+        borderTop: `4px solid ${currentRole.color}`, 
+        borderRadius: 2, 
+        backgroundColor: 'white',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.1)'
+      }}>
         <CardContent sx={{ p: 4 }}>
-          <Typography variant="h4" align="center" gutterBottom sx={{ color: currentRole.color, fontWeight: 'bold' }}>
+          <Typography variant="h4" align="center" gutterBottom sx={{ 
+            color: currentRole.color, 
+            fontWeight: 'bold',
+            mb: 2
+          }}>
             {currentRole.title}
           </Typography>
           <Typography variant="body1" align="center" color="textSecondary" sx={{ mb: 4 }}>
@@ -187,6 +197,14 @@ const Register = () => {
             variant="outlined" 
             disabled={loading}
             required
+            sx={{
+              '& .MuiInputLabel-root.Mui-focused': {
+                color: currentRole.color,
+              },
+              '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                borderColor: currentRole.color,
+              }
+            }}
           />
           <TextField 
             label="Email" 
@@ -199,6 +217,14 @@ const Register = () => {
             disabled={loading}
             required
             helperText="We'll send a verification link to this email"
+            sx={{
+              '& .MuiInputLabel-root.Mui-focused': {
+                color: currentRole.color,
+              },
+              '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                borderColor: currentRole.color,
+              }
+            }}
           />
           <TextField 
             label="Password" 
@@ -223,9 +249,15 @@ const Register = () => {
               backgroundColor: currentRole.color, 
               py: 1.5, 
               fontSize: '1.1rem',
+              fontWeight: 'bold',
+              borderRadius: 2,
+              textTransform: 'none',
               '&:hover': {
                 backgroundColor: currentRole.color,
                 opacity: 0.9
+              },
+              '&:disabled': {
+                backgroundColor: '#e0e0e0'
               }
             }}
             disabled={loading || !name || !email || !password}
@@ -236,7 +268,21 @@ const Register = () => {
 
           <Box sx={{ textAlign: 'center', mt: 3 }}>
             <Typography variant="body2" color="textSecondary">
-              Already have an account? <Button onClick={() => navigate(`/login/${role}`)}>Login here</Button>
+              Already have an account?{' '}
+              <Button 
+                onClick={() => navigate(`/login/${role}`)}
+                sx={{ 
+                  color: currentRole.color,
+                  textTransform: 'none',
+                  fontWeight: 'bold',
+                  '&:hover': {
+                    backgroundColor: 'transparent',
+                    textDecoration: 'underline'
+                  }
+                }}
+              >
+                Login here
+              </Button>
             </Typography>
           </Box>
         </CardContent>
@@ -248,33 +294,53 @@ const Register = () => {
         onClose={handleCloseVerificationDialog}
         maxWidth="sm"
         fullWidth
+        PaperProps={{
+          sx: { 
+            borderRadius: 3,
+            backgroundColor: 'white'
+          }
+        }}
       >
-        <DialogTitle sx={{ textAlign: 'center' }}>
-          <CheckCircle sx={{ fontSize: 60, color: '#4caf50', mb: 2 }} />
-          <Typography variant="h5" component="div">
+        <DialogTitle sx={{ textAlign: 'center', pb: 1 }}>
+          <Typography variant="h5" component="div" sx={{ fontWeight: 'bold', color: '#2c3e50' }}>
             Verify Your Email
           </Typography>
         </DialogTitle>
         <DialogContent>
-          <Typography variant="body1" paragraph>
+          <Typography variant="body1" paragraph color="text.primary">
             We've sent a verification link to:
           </Typography>
-          <Typography variant="h6" align="center" color="primary" paragraph>
+          <Typography variant="h6" align="center" sx={{ 
+            fontWeight: 'bold',
+            color: '#2c3e50',
+            backgroundColor: '#f5f5f5',
+            py: 1,
+            px: 2,
+            borderRadius: 1,
+            mb: 2
+          }}>
             {email}
           </Typography>
           <Typography variant="body2" color="textSecondary" paragraph>
             Please check your inbox and click the verification link to activate your account. 
             If you don't see the email, check your spam folder.
           </Typography>
-          <Alert severity="info" sx={{ mt: 2 }}>
-            You need to verify your email before you can access all features.
+          <Alert severity="info" sx={{ mt: 2, borderRadius: 2 }}>
+            You need to verify your email before you can login. After verification, return to login to access your account.
           </Alert>
         </DialogContent>
-        <DialogActions sx={{ justifyContent: 'center', pb: 3 }}>
+        <DialogActions sx={{ justifyContent: 'center', pb: 3, pt: 1 }}>
           <Button 
             variant="contained" 
             onClick={handleCloseVerificationDialog}
             size="large"
+            sx={{ 
+              borderRadius: 2,
+              px: 4,
+              textTransform: 'none',
+              fontSize: '1rem',
+              backgroundColor: currentRole.color
+            }}
           >
             Continue to Login
           </Button>

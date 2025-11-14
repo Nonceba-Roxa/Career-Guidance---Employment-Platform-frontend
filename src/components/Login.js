@@ -8,33 +8,15 @@ import {
   TextField, 
   Button, 
   Box, 
-  Paper,
   Alert,
   CircularProgress,
   Card,
   CardContent,
-  Divider,
-  Link,
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions,
-  IconButton,
-  InputAdornment
+  DialogActions
 } from '@mui/material';
-import { 
-  School, 
-  Business, 
-  AccountBalance, 
-  AdminPanelSettings,
-  Email,
-  Lock,
-  Login as LoginIcon,
-  Visibility,
-  VisibilityOff,
-  CheckCircle,
-  Close
-} from '@mui/icons-material';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -53,39 +35,36 @@ const Login = () => {
     login, 
     sendVerificationEmail,
     resetPassword,
-    clearError 
+    clearError,
+    logout
   } = useAuth();
   
   const navigate = useNavigate();
   const { role } = useParams();
 
-  // Role configuration for display
+  // Professional color scheme (no blue)
   const roleConfig = {
     student: { 
       title: 'Student Login', 
-      icon: <School sx={{ fontSize: 40 }} />, 
-      color: '#1976d2',
+      color: '#6d4c41', // Brown
       description: 'Access your courses, applications, and career opportunities',
       dashboard: '/student'
     },
     institute: { 
       title: 'Institute Login', 
-      icon: <AccountBalance sx={{ fontSize: 40 }} />, 
-      color: '#2e7d32',
+      color: '#2e7d32', // Green
       description: 'Manage courses, admissions, and student applications',
       dashboard: '/institute'
     },
     company: { 
       title: 'Company Login', 
-      icon: <Business sx={{ fontSize: 40 }} />, 
-      color: '#ed6c02',
+      color: '#ed6c02', // Orange
       description: 'Post jobs and find qualified candidates',
       dashboard: '/company'
     },
     admin: { 
       title: 'Admin Login', 
-      icon: <AdminPanelSettings sx={{ fontSize: 40 }} />, 
-      color: '#d32f2f',
+      color: '#d32f2f', // Red
       description: 'Platform administration and user management',
       dashboard: '/admin'
     }
@@ -94,8 +73,7 @@ const Login = () => {
   // Get current role config or default
   const currentRole = roleConfig[role] || { 
     title: 'Login', 
-    icon: <LoginIcon sx={{ fontSize: 40 }} />, 
-    color: '#666',
+    color: '#5d4037',
     description: 'Sign in to your account',
     dashboard: '/dashboard'
   };
@@ -113,7 +91,7 @@ const Login = () => {
     }
   }, [error]);
 
-  // Redirect if already logged in with correct role
+  // Redirect if already logged in with correct role and verified (or admin)
   useEffect(() => {
     if (user && profile && !authLoading) {
       let userRole = profile.role?.toLowerCase();
@@ -121,6 +99,14 @@ const Login = () => {
 
       if (role && role !== userRole) {
         setError(`You are logged in as ${userRole}, but trying to access ${role} login. Please logout first.`);
+        return;
+      }
+
+      // Check if user needs email verification (non-admin users only)
+      if (!user.emailVerified && userRole !== 'admin') {
+        setNeedsVerification(true);
+        setVerificationDialogOpen(true);
+        setError('Please verify your email address to access your account.');
         return;
       }
 
@@ -170,11 +156,20 @@ const Login = () => {
     try {
       const userCredential = await login(email, password);
       
-      // Check if email is verified
-      if (userCredential.user && !userCredential.user.emailVerified) {
+      // Check if email is verified for non-admin users
+      if (userCredential.user && !userCredential.user.emailVerified && role !== 'admin') {
         setNeedsVerification(true);
         setVerificationDialogOpen(true);
-        setError('Please verify your email address to access all features.');
+        setError('Please verify your email address to access your account.');
+        
+        // Log out the unverified user
+        await logout();
+        return;
+      }
+
+      // If verified or admin, proceed to dashboard
+      if (profile) {
+        redirectToDashboard(profile.role?.toLowerCase());
       }
     } catch (error) {
       let errorMessage = 'Login failed. Please try again.';
@@ -256,9 +251,13 @@ const Login = () => {
     setError('');
 
     try {
+      // For resending verification, we need to temporarily log the user in
+      const userCredential = await login(email, password);
       await sendVerificationEmail();
       setError('');
       setVerificationDialogOpen(true);
+      // Log out after sending verification
+      await logout();
     } catch (err) {
       setError('Failed to send verification email: ' + err.message);
     } finally {
@@ -287,7 +286,8 @@ const Login = () => {
         display: 'flex', 
         justifyContent: 'center', 
         alignItems: 'center', 
-        minHeight: '80vh' 
+        minHeight: '80vh',
+        backgroundColor: '#fafafa'
       }}>
         <Box sx={{ textAlign: 'center' }}>
           <CircularProgress size={60} sx={{ mb: 3, color: currentRole.color }} />
@@ -304,37 +304,23 @@ const Login = () => {
 
   return (
     <>
-      <Container maxWidth="sm" sx={{ py: 4 }}>
+      <Container maxWidth="sm" sx={{ py: 4, backgroundColor: '#fafafa', minHeight: '100vh' }}>
         <Card 
           elevation={4} 
           sx={{ 
             borderRadius: 3,
             overflow: 'visible',
             borderTop: `4px solid ${currentRole.color}`,
-            background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)'
+            backgroundColor: 'white'
           }}
         >
           <Box sx={{ 
             p: 4, 
             textAlign: 'center',
-            background: `linear-gradient(135deg, ${currentRole.color}15 0%, ${currentRole.color}08 100%)`,
+            backgroundColor: `${currentRole.color}08`,
             borderBottom: `1px solid ${currentRole.color}20`
           }}>
-            <Box sx={{ 
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: 80,
-              height: 80,
-              borderRadius: '50%',
-              bgcolor: `${currentRole.color}15`,
-              mb: 2,
-              border: `2px solid ${currentRole.color}30`
-            }}>
-              {currentRole.icon}
-            </Box>
-            
-            <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: 'text.primary' }}>
+            <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: '#2c3e50' }}>
               {currentRole.title}
             </Typography>
             
@@ -388,13 +374,6 @@ const Login = () => {
                 fullWidth
                 required
                 disabled={loading}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <Email sx={{ color: 'text.secondary' }} />
-                    </InputAdornment>
-                  ),
-                }}
                 sx={{
                   '& .MuiOutlinedInput-root': {
                     borderRadius: 2,
@@ -421,23 +400,20 @@ const Login = () => {
                 required
                 disabled={loading}
                 InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <Lock sx={{ color: 'text.secondary' }} />
-                    </InputAdornment>
-                  ),
                   endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton
-                        aria-label="toggle password visibility"
-                        onClick={handleClickShowPassword}
-                        onMouseDown={handleMouseDownPassword}
-                        edge="end"
-                        sx={{ color: 'text.secondary' }}
-                      >
-                        {showPassword ? <VisibilityOff /> : <Visibility />}
-                      </IconButton>
-                    </InputAdornment>
+                    <Button
+                      onClick={handleClickShowPassword}
+                      onMouseDown={handleMouseDownPassword}
+                      edge="end"
+                      sx={{ 
+                        color: 'text.secondary',
+                        textTransform: 'none',
+                        fontSize: '0.875rem',
+                        minWidth: 'auto'
+                      }}
+                    >
+                      {showPassword ? 'Hide' : 'Show'}
+                    </Button>
                   )
                 }}
                 sx={{
@@ -458,23 +434,24 @@ const Login = () => {
               />
 
               <Box sx={{ textAlign: 'right', mt: -2 }}>
-                <Link
-                  component="button"
+                <Button
                   type="button"
                   onClick={handleForgotPassword}
                   sx={{
                     fontSize: '0.875rem',
                     color: 'text.secondary',
+                    textTransform: 'none',
                     textDecoration: 'none',
                     '&:hover': {
                       color: currentRole.color,
+                      backgroundColor: 'transparent',
                       textDecoration: 'underline'
                     }
                   }}
                   disabled={loading}
                 >
                   Forgot your password?
-                </Link>
+                </Button>
               </Box>
 
               <Button 
@@ -488,21 +465,16 @@ const Login = () => {
                   fontWeight: 'bold',
                   borderRadius: 2,
                   textTransform: 'none',
-                  background: `linear-gradient(135deg, ${currentRole.color} 0%, ${currentRole.color}dd 100%)`,
-                  boxShadow: `0 4px 15px ${currentRole.color}40`,
+                  backgroundColor: currentRole.color,
                   '&:hover': {
-                    background: `linear-gradient(135deg, ${currentRole.color}dd 0%, ${currentRole.color} 100%)`,
-                    boxShadow: `0 6px 20px ${currentRole.color}60`,
-                    transform: 'translateY(-1px)'
+                    backgroundColor: currentRole.color,
+                    opacity: 0.9
                   },
                   '&:disabled': {
-                    background: '#e0e0e0',
-                    boxShadow: 'none',
-                    transform: 'none'
-                  },
-                  transition: 'all 0.3s ease'
+                    backgroundColor: '#e0e0e0',
+                  }
                 }}
-                startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <LoginIcon />}
+                startIcon={loading ? <CircularProgress size={20} color="inherit" /> : null}
               >
                 {loading ? 'Signing In...' : 'Sign In'}
               </Button>
@@ -511,20 +483,22 @@ const Login = () => {
             <Box sx={{ textAlign: 'center', mt: 3 }}>
               <Typography variant="body2" color="text.secondary" gutterBottom>
                 Don't have an account?{' '}
-                <Link 
+                <Button 
                   component={RouterLink}
                   to={role ? `/register/${role}` : '/select-role'}
                   sx={{ 
                     fontWeight: 'bold',
                     color: currentRole.color,
+                    textTransform: 'none',
                     textDecoration: 'none',
                     '&:hover': {
-                      textDecoration: 'underline'
+                      textDecoration: 'underline',
+                      backgroundColor: 'transparent'
                     }
                   }}
                 >
                   Create account
-                </Link>
+                </Button>
               </Typography>
             </Box>
 
@@ -535,12 +509,12 @@ const Login = () => {
                   size="small"
                   sx={{ 
                     color: 'text.secondary',
+                    textTransform: 'none',
                     '&:hover': {
                       color: currentRole.color,
                       backgroundColor: `${currentRole.color}10`
                     }
                   }}
-                  startIcon={<Close />}
                 >
                   Back to Role Selection
                 </Button>
@@ -550,7 +524,7 @@ const Login = () => {
         </Card>
       </Container>
 
-      {/* Verification/Preset Success Dialog */}
+      {/* Email Verification Required Dialog */}
       <Dialog 
         open={verificationDialogOpen} 
         onClose={handleCloseVerificationDialog}
@@ -564,46 +538,41 @@ const Login = () => {
           textAlign: 'center',
           pb: 1
         }}>
-          <CheckCircle sx={{ fontSize: 60, color: '#4caf50', mb: 1 }} />
-          <Typography variant="h5" component="div" sx={{ fontWeight: 'bold' }}>
-            {needsVerification ? 'Check Your Email' : 'Reset Link Sent'}
+          <Typography variant="h5" component="div" sx={{ fontWeight: 'bold', color: '#2c3e50' }}>
+            Email Verification Required
           </Typography>
         </DialogTitle>
         
         <DialogContent>
-          <Typography variant="body1" paragraph align="center">
-            {needsVerification 
-              ? `We've sent a verification link to:`
-              : `We've sent a password reset link to:`
-            }
+          <Typography variant="body1" paragraph align="center" color="text.primary">
+            Please verify your email address before logging in.
           </Typography>
           
           <Typography 
             variant="h6" 
             align="center" 
-            color="primary" 
-            paragraph
             sx={{ 
               fontWeight: 'bold',
               wordBreak: 'break-all',
               backgroundColor: '#f5f5f5',
               py: 1,
               px: 2,
-              borderRadius: 1
+              borderRadius: 1,
+              color: '#2c3e50',
+              mb: 2
             }}
           >
             {email}
           </Typography>
           
           <Typography variant="body2" color="textSecondary" paragraph align="center">
-            {needsVerification 
-              ? `Please check your inbox and click the verification link to activate your account. If you don't see the email, check your spam folder.`
-              : `Please check your inbox and follow the instructions to reset your password. If you don't see the email, check your spam folder.`
-            }
+            We've sent a verification link to your email address. 
+            Please check your inbox and click the verification link to activate your account.
+            If you don't see the email, check your spam folder.
           </Typography>
           
           <Alert 
-            severity="info" 
+            severity="warning" 
             sx={{ 
               mt: 2,
               borderRadius: 2,
@@ -613,30 +582,45 @@ const Login = () => {
               }
             }}
           >
-            {needsVerification
-              ? 'You need to verify your email before you can access all features.'
-              : 'The reset link will expire in 1 hour for security reasons.'
-            }
+            You cannot login until your email is verified.
           </Alert>
         </DialogContent>
         
         <DialogActions sx={{ 
           justifyContent: 'center', 
           pb: 3,
-          pt: 1
+          pt: 1,
+          flexDirection: 'column',
+          gap: 1
         }}>
           <Button 
             variant="contained" 
-            onClick={handleCloseVerificationDialog}
+            onClick={handleResendVerification}
             size="large"
+            disabled={resendLoading}
             sx={{ 
               borderRadius: 2,
               px: 4,
               textTransform: 'none',
-              fontSize: '1rem'
+              fontSize: '1rem',
+              backgroundColor: currentRole.color
+            }}
+            startIcon={resendLoading ? <CircularProgress size={16} color="inherit" /> : null}
+          >
+            {resendLoading ? 'Sending...' : 'Resend Verification Email'}
+          </Button>
+          <Button 
+            variant="outlined" 
+            onClick={handleCloseVerificationDialog}
+            size="medium"
+            sx={{ 
+              borderRadius: 2,
+              textTransform: 'none',
+              borderColor: currentRole.color,
+              color: currentRole.color
             }}
           >
-            Continue to Login
+            Back to Login
           </Button>
         </DialogActions>
       </Dialog>
